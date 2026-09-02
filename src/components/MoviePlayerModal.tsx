@@ -7,6 +7,7 @@ import {
   Sparkles,
   ChevronUp,
   ChevronDown,
+  ExternalLink,
 } from 'lucide-react';
 import { PosterData } from '../types';
 import { sound } from '../utils/audio';
@@ -417,8 +418,21 @@ export const MoviePlayerModal: React.FC<MoviePlayerModalProps> = ({
           </div>
         )}
 
-        {/* Right: Close Player Modal Button */}
-        <div className="flex items-center justify-end pointer-events-auto shrink-0">
+        {/* Right: External Link & Close Player Modal Buttons */}
+        <div className="flex items-center justify-end gap-1.5 sm:gap-2 pointer-events-auto shrink-0">
+          <a
+            id="open-external-player-btn"
+            href={playerUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open Stream in New Tab (Bypasses Preview Sandbox)"
+            aria-label="Open Stream in New Tab"
+            className="group relative flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-neutral-900/80 hover:bg-cyan-600 text-neutral-300 hover:text-white border border-white/20 hover:border-cyan-400 shadow-[0_4px_16px_rgba(0,0,0,0.8)] hover:shadow-[0_0_16px_rgba(6,182,212,0.7)] backdrop-blur-xl transition-all duration-200 cursor-pointer active:scale-90"
+          >
+            <ExternalLink className="w-3.5 h-3.5 sm:w-4 sm:h-4 transition-transform duration-200 group-hover:scale-110" />
+            <span className="sr-only">Open in New Tab</span>
+          </a>
+
           <button
             id="close-player-btn"
             onClick={() => {
@@ -462,7 +476,7 @@ export const MoviePlayerModal: React.FC<MoviePlayerModalProps> = ({
         id="cinemaos-iframe"
         src={playerUrl}
         title={poster.title}
-        allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
         allowFullScreen
         onLoad={() => setIsLoading(false)}
         className="w-full h-full border-0 bg-black pt-11 sm:pt-13"
