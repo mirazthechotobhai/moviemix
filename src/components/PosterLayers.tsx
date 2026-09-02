@@ -37,6 +37,7 @@ export const PosterLayers: React.FC<PosterLayersProps> = ({
     if (poster.bgImageUrl && typeof poster.bgImageUrl === 'string' && !list.includes(poster.bgImageUrl)) {
       list.push(poster.bgImageUrl);
     }
+
     // Alternative CDN resolution tiers for TMDB
     if (poster.heroImageUrl && poster.heroImageUrl.includes('/w780/')) {
       const w500 = poster.heroImageUrl.replace('/w780/', '/w500/');
@@ -52,12 +53,30 @@ export const PosterLayers: React.FC<PosterLayersProps> = ({
       const orig = poster.bgImageUrl.replace('/w1280/', '/original/');
       if (!list.includes(orig)) list.push(orig);
     }
-    // Universal ultimate fallback
-    if (FALLBACK_POSTERS[0]?.heroImageUrl && !list.includes(FALLBACK_POSTERS[0].heroImageUrl)) {
-      list.push(FALLBACK_POSTERS[0].heroImageUrl);
+
+    // For anime, try extraLarge / large / medium variations
+    if (poster.mediaType === 'anime' && poster.heroImageUrl) {
+      if (poster.heroImageUrl.includes('/extraLarge/')) {
+        const large = poster.heroImageUrl.replace('/extraLarge/', '/large/');
+        if (!list.includes(large)) list.push(large);
+        const medium = poster.heroImageUrl.replace('/extraLarge/', '/medium/');
+        if (!list.includes(medium)) list.push(medium);
+      } else if (poster.heroImageUrl.includes('/large/')) {
+        const medium = poster.heroImageUrl.replace('/large/', '/medium/');
+        if (!list.includes(medium)) list.push(medium);
+      }
     }
-    return list.length > 0 ? list : [FALLBACK_POSTERS[0].heroImageUrl];
-  }, [poster.id, poster.textlessPosterUrl, poster.heroImageUrl, poster.bgImageUrl]);
+
+    // Fallback only if no candidates found
+    if (list.length === 0) {
+      if (poster.mediaType === 'anime') {
+        list.push('https://images.unsplash.com/photo-1578632767115-351597cf2477?w=1080&q=80');
+      } else {
+        list.push(FALLBACK_POSTERS[0]?.heroImageUrl || '');
+      }
+    }
+    return list;
+  }, [poster.id, poster.textlessPosterUrl, poster.heroImageUrl, poster.bgImageUrl, poster.mediaType]);
 
   const [imgIndex, setImgIndex] = useState<number>(0);
   const [imageLoaded, setImageLoaded] = useState<boolean>(false);
@@ -66,7 +85,7 @@ export const PosterLayers: React.FC<PosterLayersProps> = ({
   useEffect(() => {
     setImgIndex(0);
     setImageLoaded(false);
-  }, [poster.id, candidateImages]);
+  }, [poster.id]);
 
   const activePosterUrl = candidateImages[imgIndex] || candidateImages[0] || poster.heroImageUrl || poster.bgImageUrl;
   const activeBgUrl = poster.bgImageUrl || activePosterUrl;
@@ -138,10 +157,10 @@ export const PosterLayers: React.FC<PosterLayersProps> = ({
               }}
             >
               <img
-                key={poster.id + activePosterUrl + imgIndex}
+                key={`${poster.id}-${activePosterUrl}-${imgIndex}`}
                 src={activePosterUrl}
                 alt={poster.title}
-                crossOrigin="anonymous"
+                referrerPolicy="no-referrer"
                 loading="eager"
                 decoding="async"
                 onLoad={() => {

@@ -1,21 +1,63 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Film, Loader2, RefreshCw, Check, Camera, ChevronLeft, ChevronRight, Search, Play } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import {
+  Film,
+  Tv,
+  Sparkles,
+  Loader2,
+  RefreshCw,
+  Check,
+  Camera,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  Play,
+  Flame,
+} from 'lucide-react';
 import { PosterData, WebShot, ParallaxState } from './types';
 import { PosterLayers } from './components/PosterLayers';
 import { SpiderWebCanvas } from './components/SpiderWebCanvas';
-import { SearchModal } from './components/SearchModal';
+import { SearchModal, SearchMode } from './components/SearchModal';
 import { MoviePlayerModal } from './components/MoviePlayerModal';
 import { sound } from './utils/audio';
-import { fetchTop100Movies, fetchTrendingMoviesPage, preloadPosterImages, fetchMovieDetails } from './services/tmdb';
+import {
+  fetchTop100Movies,
+  fetchTop100TVShows,
+  fetchTrendingMoviesPage,
+  fetchInfiniteTVCatalog,
+  preloadPosterImages,
+  fetchMovieDetails,
+} from './services/tmdb';
+import {
+  fetchTop100AniListAnime,
+  fetchInfiniteAniListCatalog,
+} from './services/anilist';
 import { FALLBACK_POSTERS } from './data/fallbackPosters';
 import { capturePosterScreenshot, triggerDownload } from './utils/screenshot';
 
 export default function App() {
-  const [movies, setMovies] = useState<PosterData[]>(FALLBACK_POSTERS);
-  const [currentIndex, setCurrentIndex] = useState<number>(0);
-  const [currentPage, setCurrentPage] = useState<number>(1);
-  const [isLoadingInitial, setIsLoadingInitial] = useState<boolean>(false);
+  // Active Media Category: 'movies' | 'tv' | 'anime'
+  const [activeMediaType, setActiveMediaType] = useState<SearchMode>('movies');
+
+  // Separate catalogs for Movies, TV Shows, and Anime
+  const [moviesCatalog, setMoviesCatalog] = useState<PosterData[]>(FALLBACK_POSTERS);
+  const [tvCatalog, setTvCatalog] = useState<PosterData[]>([]);
+  const [animeCatalog, setAnimeCatalog] = useState<PosterData[]>([]);
+
+  // Current selected index for each category
+  const [movieIndex, setMovieIndex] = useState<number>(0);
+  const [tvIndex, setTvIndex] = useState<number>(0);
+  const [animeIndex, setAnimeIndex] = useState<number>(0);
+
+  // Pagination pages
+  const [moviePage, setMoviePage] = useState<number>(1);
+  const [tvPage, setTvPage] = useState<number>(1);
+  const [animePage, setAnimePage] = useState<number>(1);
+
+  // Loading states
+  const [isLoadingCategory, setIsLoadingCategory] = useState<boolean>(false);
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
+
+  // FX & UI states
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [showSpideySense, setShowSpideySense] = useState<boolean>(false);
   const [isShaking, setIsShaking] = useState<boolean>(false);
@@ -26,34 +68,121 @@ export default function App() {
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
   const [isPlayerOpen, setIsPlayerOpen] = useState<boolean>(false);
 
-  // Fetch initial 100 TMDB latest release & trending movies on mount
+  // Current active catalog based on activeMediaType
+  const activeCatalog = useMemo(() => {
+    if (activeMediaType === 'tv') {
+      return tvCatalog.length > 0 ? tvCatalog : moviesCatalog;
+    }
+    if (activeMediaType === 'anime') {
+      return animeCatalog.length > 0 ? animeCatalog : moviesCatalog;
+    }
+    return moviesCatalog;
+  }, [activeMediaType, tvCatalog, animeCatalog, moviesCatalog]);
+
+  // Current index in active catalog
+  const currentIndex =
+    activeMediaType === 'tv' ? tvIndex : activeMediaType === 'anime' ? animeIndex : movieIndex;
+
+  const setCurrentIndex = useCallback(
+    (indexOrUpdater: number | ((prev: number) => number)) => {
+      if (activeMediaType === 'tv') {
+        setTvIndex(indexOrUpdater);
+      } else if (activeMediaType === 'anime') {
+        setAnimeIndex(indexOrUpdater);
+      } else {
+        setMovieIndex(indexOrUpdater);
+      }
+    },
+    [activeMediaType]
+  );
+
+  // 1. Initial Load: Fetch Top 100 Movies on mount
   useEffect(() => {
     let isMounted = true;
     async function loadInitial100Movies() {
       try {
         const top100 = await fetchTop100Movies();
         if (isMounted && top100.length > 0) {
-          setMovies(top100);
+          setMoviesCatalog(top100);
         }
       } catch (err) {
-        console.warn('Using instant fallback movies:', err);
+        console.warn('Using fallback movies:', err);
       }
     }
-
     loadInitial100Movies();
     return () => {
       isMounted = false;
     };
   }, []);
 
-  // Enrich current poster with deep credits (director, cast, etc.) if needed
+  // 2. Load Top 100 TV Shows whenever switched to 'tv' if not yet loaded
   useEffect(() => {
-    const activeMovie = movies[currentIndex];
-    if (activeMovie && activeMovie.tmdbId && activeMovie.director === 'ACCLAIMED FILMMAKER') {
+    if (activeMediaType === 'tv' && tvCatalog.length === 0 && !isLoadingCategory) {
+      setIsLoadingCategory(true);
+      fetchTop100TVShows()
+        .then((top100TV) => {
+          if (top100TV.length > 0) {
+            setTvCatalog(top100TV);
+            preloadPosterImages(top100TV.slice(0, 5));
+          }
+        })
+        .catch((err) => console.error('Error loading top 100 TV:', err))
+        .finally(() => setIsLoadingCategory(false));
+    }
+  }, [activeMediaType, tvCatalog.length, isLoadingCategory]);
+
+  // 3. Load Top 100 Anime from AniList API whenever switched to 'anime' if not yet loaded
+  useEffect(() => {
+    if (activeMediaType === 'anime' && animeCatalog.length === 0 && !isLoadingCategory) {
+      setIsLoadingCategory(true);
+      fetchTop100AniListAnime()
+        .then((top100Anime) => {
+          if (top100Anime.length > 0) {
+            setAnimeCatalog(top100Anime);
+            preloadPosterImages(top100Anime.slice(0, 5));
+          }
+        })
+        .catch((err) => console.error('Error loading top 100 Anime from AniList:', err))
+        .finally(() => setIsLoadingCategory(false));
+    }
+  }, [activeMediaType, animeCatalog.length, isLoadingCategory]);
+
+  // Handle Switch Category Mode (Movies, TV Shows, Anime)
+  const handleCategorySwitch = useCallback(
+    (mode: SearchMode) => {
+      if (mode === activeMediaType) return;
+      sound.playOkClick();
+      setIsShaking(true);
+      setActiveMediaType(mode);
+
+      // Preload current target poster in new category
+      const targetList =
+        mode === 'tv' ? tvCatalog : mode === 'anime' ? animeCatalog : moviesCatalog;
+      if (targetList.length > 0) {
+        preloadPosterImages([targetList[0]]);
+      }
+
+      setTimeout(() => {
+        setIsShaking(false);
+      }, 450);
+    },
+    [activeMediaType, tvCatalog, animeCatalog, moviesCatalog]
+  );
+
+  // Enrich current poster with deep credits if movie details are generic
+  useEffect(() => {
+    const activeMovie = activeCatalog[currentIndex];
+    if (
+      activeMovie &&
+      activeMovie.tmdbId &&
+      activeMovie.director === 'ACCLAIMED FILMMAKER' &&
+      activeMovie.mediaType !== 'tv' &&
+      activeMovie.mediaType !== 'anime'
+    ) {
       let isSubscribed = true;
       fetchMovieDetails(activeMovie.tmdbId).then((details) => {
         if (isSubscribed && details) {
-          setMovies((prev) =>
+          setMoviesCatalog((prev) =>
             prev.map((m) => {
               if (m.id === activeMovie.id) {
                 return {
@@ -76,31 +205,57 @@ export default function App() {
         isSubscribed = false;
       };
     }
-  }, [currentIndex, movies]);
+  }, [currentIndex, activeCatalog]);
 
-  // Proactive background fetch for next TMDB page for infinite scrolling
-  const loadNextPage = useCallback(async (nextPageNumber: number) => {
-    if (isLoadingMore) return;
-    setIsLoadingMore(true);
-    try {
-      const nextBatch = await fetchTrendingMoviesPage(nextPageNumber);
-      if (nextBatch.length > 0) {
-        setMovies((prev) => {
-          const existingIds = new Set(prev.map((m) => m.tmdbId || m.id));
-          const filtered = nextBatch.filter((m) => !existingIds.has(m.tmdbId || m.id));
-          return [...prev, ...filtered];
-        });
-        setCurrentPage(nextPageNumber);
+  // Infinite next page loader for active category
+  const loadNextPage = useCallback(
+    async (nextPageNumber: number) => {
+      if (isLoadingMore) return;
+      setIsLoadingMore(true);
+
+      try {
+        if (activeMediaType === 'movies') {
+          const nextBatch = await fetchTrendingMoviesPage(nextPageNumber);
+          if (nextBatch.length > 0) {
+            setMoviesCatalog((prev) => {
+              const existingIds = new Set(prev.map((m) => m.tmdbId || m.id));
+              const filtered = nextBatch.filter((m) => !existingIds.has(m.tmdbId || m.id));
+              return [...prev, ...filtered];
+            });
+            setMoviePage(nextPageNumber);
+          }
+        } else if (activeMediaType === 'tv') {
+          const res = await fetchInfiniteTVCatalog(nextPageNumber, 'all');
+          if (res.movies.length > 0) {
+            setTvCatalog((prev) => {
+              const existingIds = new Set(prev.map((m) => m.tmdbId || m.id));
+              const filtered = res.movies.filter((m) => !existingIds.has(m.tmdbId || m.id));
+              return [...prev, ...filtered];
+            });
+            setTvPage(nextPageNumber);
+          }
+        } else if (activeMediaType === 'anime') {
+          const res = await fetchInfiniteAniListCatalog(nextPageNumber);
+          if (res.anime.length > 0) {
+            setAnimeCatalog((prev) => {
+              const existingIds = new Set(prev.map((m) => m.anilistId || m.tmdbId || m.id));
+              const filtered = res.anime.filter((m) => !existingIds.has(m.anilistId || m.tmdbId || m.id));
+              return [...prev, ...filtered];
+            });
+            setAnimePage(nextPageNumber);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch next page:', err);
+      } finally {
+        setIsLoadingMore(false);
       }
-    } catch (err) {
-      console.error('Failed to fetch next TMDB page:', err);
-    } finally {
-      setIsLoadingMore(false);
-    }
-  }, [isLoadingMore]);
+    },
+    [activeMediaType, isLoadingMore]
+  );
 
   // Current active poster
-  const currentPoster = movies[currentIndex] || null;
+  const currentPoster = activeCatalog[currentIndex] || activeCatalog[0] || FALLBACK_POSTERS[0];
 
   // Parallax and Mouse tracking
   const [parallax, setParallax] = useState<ParallaxState>({
@@ -135,7 +290,7 @@ export default function App() {
         endX,
         endY,
         createdAt: Date.now(),
-        color: currentPoster.themeColor.accent,
+        color: currentPoster.themeColor?.accent || '#38bdf8',
       };
 
       setWebs((prev) => [...prev.slice(-12), newWeb]);
@@ -149,7 +304,6 @@ export default function App() {
     setIsOkPressed(true);
     sound.playOkClick();
 
-    // Trigger spidey sense ripple and web shot towards the poster center
     setShowSpideySense(true);
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -164,16 +318,16 @@ export default function App() {
     }, 2000);
   }, [triggerWebShot]);
 
-  // Switch to Previous Movie
+  // Switch to Previous Poster in active catalog
   const handlePreviousMovie = useCallback(() => {
-    if (movies.length === 0) return;
+    if (activeCatalog.length === 0) return;
     setIsShaking(true);
     sound.playOkClick();
 
     setCurrentIndex((prevIndex) => {
       const prev = prevIndex - 1;
-      const targetIndex = prev >= 0 ? prev : movies.length - 1;
-      const upcoming = [movies[targetIndex]].filter(Boolean);
+      const targetIndex = prev >= 0 ? prev : activeCatalog.length - 1;
+      const upcoming = [activeCatalog[targetIndex]].filter(Boolean);
       preloadPosterImages(upcoming);
       return targetIndex;
     });
@@ -181,25 +335,31 @@ export default function App() {
     setTimeout(() => {
       setIsShaking(false);
     }, 450);
-  }, [movies]);
+  }, [activeCatalog, setCurrentIndex]);
 
-  // Switch to Next Movie
+  // Switch to Next Poster in active catalog
   const handleNextMovie = useCallback(() => {
-    if (movies.length === 0) return;
+    if (activeCatalog.length === 0) return;
     setIsShaking(true);
     sound.playOkClick();
+
+    const currentPageNum =
+      activeMediaType === 'tv' ? tvPage : activeMediaType === 'anime' ? animePage : moviePage;
 
     setCurrentIndex((prevIndex) => {
       const nextIndex = prevIndex + 1;
 
       // When approaching the end of current list, proactively fetch the next TMDB page
-      if (nextIndex >= movies.length - 4) {
-        loadNextPage(currentPage + 1);
+      if (nextIndex >= activeCatalog.length - 4) {
+        loadNextPage(currentPageNum + 1);
       }
 
       // Preload next upcoming posters into browser memory for zero-lag display
-      const targetIndex = nextIndex < movies.length ? nextIndex : 0;
-      const upcoming = [movies[targetIndex], movies[(targetIndex + 1) % movies.length]].filter(Boolean);
+      const targetIndex = nextIndex < activeCatalog.length ? nextIndex : 0;
+      const upcoming = [
+        activeCatalog[targetIndex],
+        activeCatalog[(targetIndex + 1) % activeCatalog.length],
+      ].filter(Boolean);
       preloadPosterImages(upcoming);
 
       return targetIndex;
@@ -208,7 +368,7 @@ export default function App() {
     setTimeout(() => {
       setIsShaking(false);
     }, 450);
-  }, [movies.length, currentPage, loadNextPage]);
+  }, [activeCatalog, activeMediaType, tvPage, animePage, moviePage, setCurrentIndex, loadNextPage]);
 
   // Native Fullscreen API handler
   const toggleFullscreen = useCallback(() => {
@@ -231,36 +391,74 @@ export default function App() {
     }
   }, []);
 
-  // Handle selecting a movie from search modal
-  const handleSelectSearchedMovie = useCallback((selectedMovie: PosterData) => {
-    sound.playOkClick();
-    setIsShaking(true);
+  // Handle selecting a movie/show/anime from search modal
+  const handleSelectSearchedMovie = useCallback(
+    (selectedItem: PosterData, mode?: SearchMode) => {
+      sound.playOkClick();
+      setIsShaking(true);
 
-    setMovies((prev) => {
-      const existingIdx = prev.findIndex(
-        (m) => m.id === selectedMovie.id || (m.tmdbId && m.tmdbId === selectedMovie.tmdbId)
-      );
+      const targetMode = mode || (selectedItem.mediaType === 'tv' ? 'tv' : selectedItem.mediaType === 'anime' ? 'anime' : 'movies');
 
-      if (existingIdx !== -1) {
-        setCurrentIndex(existingIdx);
-        preloadPosterImages([prev[existingIdx]]);
-        return prev;
-      } else {
-        const updated = [selectedMovie, ...prev];
-        setCurrentIndex(0);
-        preloadPosterImages([selectedMovie]);
-        return updated;
+      if (targetMode !== activeMediaType) {
+        setActiveMediaType(targetMode);
       }
-    });
 
-    setTimeout(() => {
-      setIsShaking(false);
-    }, 450);
-  }, []);
+      if (targetMode === 'tv') {
+        setTvCatalog((prev) => {
+          const existingIdx = prev.findIndex(
+            (m) => m.id === selectedItem.id || (m.tmdbId && m.tmdbId === selectedItem.tmdbId)
+          );
+          if (existingIdx !== -1) {
+            setTvIndex(existingIdx);
+            preloadPosterImages([prev[existingIdx]]);
+            return prev;
+          } else {
+            const updated = [selectedItem, ...prev];
+            setTvIndex(0);
+            preloadPosterImages([selectedItem]);
+            return updated;
+          }
+        });
+      } else if (targetMode === 'anime') {
+        setAnimeCatalog((prev) => {
+          const existingIdx = prev.findIndex(
+            (m) => m.id === selectedItem.id || (m.tmdbId && m.tmdbId === selectedItem.tmdbId)
+          );
+          if (existingIdx !== -1) {
+            setAnimeIndex(existingIdx);
+            preloadPosterImages([prev[existingIdx]]);
+            return prev;
+          } else {
+            const updated = [selectedItem, ...prev];
+            setAnimeIndex(0);
+            preloadPosterImages([selectedItem]);
+            return updated;
+          }
+        });
+      } else {
+        setMoviesCatalog((prev) => {
+          const existingIdx = prev.findIndex(
+            (m) => m.id === selectedItem.id || (m.tmdbId && m.tmdbId === selectedItem.tmdbId)
+          );
+          if (existingIdx !== -1) {
+            setMovieIndex(existingIdx);
+            preloadPosterImages([prev[existingIdx]]);
+            return prev;
+          } else {
+            const updated = [selectedItem, ...prev];
+            setMovieIndex(0);
+            preloadPosterImages([selectedItem]);
+            return updated;
+          }
+        });
+      }
 
-  // Multi-tap tracker for middle button (1 tap: Shake & Switch | 3 taps: Screenshot | 5 taps: Fullscreen)
-  const tapCountRef = useRef<number>(0);
-  const tapTimerRef = useRef<NodeJS.Timeout | null>(null);
+      setTimeout(() => {
+        setIsShaking(false);
+      }, 450);
+    },
+    [activeMediaType]
+  );
 
   // Capture Fullscreen Poster Wallpaper Screenshot for local device
   const handleCaptureScreenshot = useCallback(async () => {
@@ -270,7 +468,6 @@ export default function App() {
     setIsOkPressed(true);
     setTimeout(() => setIsOkPressed(false), 200);
 
-    // Wait a brief render frame so React settles the poster in the neutral center (middle position)
     await new Promise((resolve) => setTimeout(resolve, 60));
 
     try {
@@ -278,22 +475,18 @@ export default function App() {
       const width = node.offsetWidth || window.innerWidth;
       const height = node.offsetHeight || window.innerHeight;
 
-      // Construct clean local filename based on movie title
-      const sanitizedTitle = (currentPoster.title || 'Movie_Poster')
+      const sanitizedTitle = (currentPoster.title || 'Poster')
         .replace(/[^a-zA-Z0-9_\-\s]/g, '')
         .trim()
         .replace(/\s+/g, '_');
       const filename = `${sanitizedTitle}_HD_Poster_${width}x${height}.png`;
 
-      // Capture using resilient multi-tier engine
       const dataUrl = await capturePosterScreenshot(node, currentPoster);
 
-      // Visual and Audio Camera feedback
       setShowFlash(true);
       sound.playCameraShutter();
       setTimeout(() => setShowFlash(false), 220);
 
-      // Trigger download
       triggerDownload(dataUrl, filename);
 
       setScreenshotToast(`Poster Saved! (${width}x${height})`);
@@ -308,11 +501,6 @@ export default function App() {
       setIsCapturing(false);
     }
   }, [currentPoster, isCapturing]);
-
-  // Single click instant screenshot controller
-  const handleMiddleButtonPress = useCallback(() => {
-    handleCaptureScreenshot();
-  }, [handleCaptureScreenshot]);
 
   // Listen to native fullscreen changes
   useEffect(() => {
@@ -397,47 +585,26 @@ export default function App() {
       } else if (e.code === 'Space') {
         e.preventDefault();
         triggerWebShot();
+      } else if (e.key === '1') {
+        handleCategorySwitch('movies');
+      } else if (e.key === '2') {
+        handleCategorySwitch('tv');
+      } else if (e.key === '3') {
+        handleCategorySwitch('anime');
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [toggleFullscreen, triggerWebShot, handleNextMovie, handlePreviousMovie, handleCaptureScreenshot, handleOkClick]);
-
-  // Loading Screen if TMDB is initial fetching
-  if (isLoadingInitial && !currentPoster) {
-    return (
-      <div className="w-screen h-screen bg-[#050505] flex flex-col items-center justify-center text-white p-6 select-none">
-        <div className="relative flex items-center justify-center mb-6">
-          <Loader2 className="w-12 h-12 text-yellow-400 animate-spin" />
-          <Film className="w-6 h-6 text-white absolute" />
-        </div>
-        <h2 className="font-montserrat font-black text-2xl sm:text-3xl tracking-wider uppercase text-center">
-          CONNECTING TMDB TRENDING
-        </h2>
-        <p className="font-montserrat text-xs text-neutral-400 mt-2 tracking-widest uppercase text-center max-w-md">
-          Fetching official high-resolution movie key art, real cast, and live ratings...
-        </p>
-      </div>
-    );
-  }
-
-  // Fallback if network was empty
-  if (!currentPoster) {
-    return (
-      <div className="w-screen h-screen bg-[#050505] flex flex-col items-center justify-center text-white p-6">
-        <p className="text-sm font-bold text-neutral-400 uppercase tracking-widest mb-4">
-          No TMDB trending movies loaded
-        </p>
-        <button
-          onClick={() => window.location.reload()}
-          className="px-4 py-2 bg-yellow-400 text-black font-black text-xs rounded-xl flex items-center gap-2"
-        >
-          <RefreshCw className="w-4 h-4" /> RETRY TMDB FETCH
-        </button>
-      </div>
-    );
-  }
+  }, [
+    toggleFullscreen,
+    triggerWebShot,
+    handleNextMovie,
+    handlePreviousMovie,
+    handleCaptureScreenshot,
+    handleOkClick,
+    handleCategorySwitch,
+  ]);
 
   return (
     <div
@@ -456,7 +623,7 @@ export default function App() {
 
       {/* Floating Screenshot Toast Notification */}
       {screenshotToast && (
-        <div className="fixed bottom-12 sm:bottom-14 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-900/95 text-white border border-cyan-400/50 shadow-[0_10px_30px_rgba(0,0,0,0.8)] backdrop-blur-md font-montserrat font-bold text-xs tracking-wider uppercase animate-fade-in screenshot-exclude">
+        <div className="fixed bottom-14 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-900/95 text-white border border-cyan-400/50 shadow-[0_10px_30px_rgba(0,0,0,0.8)] backdrop-blur-md font-montserrat font-bold text-xs tracking-wider uppercase animate-fade-in screenshot-exclude">
           <div className="w-4 h-4 rounded-full bg-cyan-400/20 flex items-center justify-center text-cyan-400">
             <Check className="w-3 h-3" />
           </div>
@@ -464,20 +631,31 @@ export default function App() {
         </div>
       )}
 
-      {/* Bottom Control Bar: Left (Previous Movie), Center (1-Click Instant Screenshot), Right (Next Movie), Search Popup Trigger */}
-      <div 
+      {/* Category Loading Banner Overlay */}
+      {isLoadingCategory && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-3 py-1 rounded-full bg-black/80 border border-cyan-400/40 text-cyan-300 text-[11px] font-montserrat font-bold animate-pulse pointer-events-none">
+          <Loader2 className="w-3 h-3 animate-spin text-cyan-400" />
+          <span>
+            Loading Top 100 {activeMediaType === 'tv' ? 'TV Series' : 'Japanese Anime'}...
+          </span>
+        </div>
+      )}
+
+      {/* Bottom Control Bar: Left (Previous), Center (Screenshot), Right (Next), Play Fullscreen, Search Modal Trigger */}
+      <nav
         id="bottom-nav-controls"
+        aria-label="Poster Controls"
         className="fixed bottom-2 sm:bottom-3 left-1/2 -translate-x-1/2 z-50 pointer-events-auto screenshot-exclude flex items-center gap-3 sm:gap-5 bg-black/40 px-3.5 py-1.5 rounded-full border border-white/10 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,0.8)]"
       >
-        {/* Previous Movie Button */}
+        {/* Previous Button */}
         <button
           id="prev-movie-btn"
           onClick={(e) => {
             e.stopPropagation();
             handlePreviousMovie();
           }}
-          title="Previous Movie (Left Arrow / P)"
-          aria-label="Previous Movie"
+          title="Previous Title (Left Arrow / P)"
+          aria-label="Previous Title"
           className="group flex items-center justify-center w-8 h-8 rounded-full bg-white/5 hover:bg-white/15 text-neutral-300 hover:text-white border border-white/10 hover:border-white/30 transition-all duration-200 cursor-pointer active:scale-90"
         >
           <ChevronLeft className="w-4 h-4 transition-transform duration-200 group-hover:-translate-x-0.5" />
@@ -488,7 +666,7 @@ export default function App() {
           id="center-bottom-ok-btn"
           onClick={(e) => {
             e.stopPropagation();
-            handleMiddleButtonPress();
+            handleCaptureScreenshot();
           }}
           disabled={isCapturing}
           title="1-Click: Take Instant HD Screenshot & Download (S / C)"
@@ -497,38 +675,35 @@ export default function App() {
             isOkPressed || isCapturing ? 'scale-90 ring-2 ring-white/50' : 'hover:scale-110'
           }`}
           style={{
-            borderColor: currentPoster.themeColor.primary,
-            boxShadow: `0 0 16px ${currentPoster.themeColor.glow}, 0 2px 10px rgba(0,0,0,0.9)`,
+            borderColor: currentPoster.themeColor?.primary || '#ef4444',
+            boxShadow: `0 0 16px ${currentPoster.themeColor?.glow || 'rgba(239,68,68,0.5)'}, 0 2px 10px rgba(0,0,0,0.9)`,
           }}
         >
-          {/* Outer Neon Glow Halo */}
           <div
             className="absolute inset-0 rounded-full opacity-60 group-hover:opacity-100 transition-opacity duration-300 blur-[3px] pointer-events-none -z-10"
-            style={{ backgroundColor: currentPoster.themeColor.glow }}
+            style={{ backgroundColor: currentPoster.themeColor?.glow || 'rgba(239,68,68,0.5)' }}
           />
-
-          {/* Camera Icon or Glowing Center Core */}
-          <Camera 
-            className="w-4 h-4 sm:w-5 sm:h-5 transition-transform duration-300 group-hover:scale-110" 
-            style={{ color: currentPoster.themeColor.accent }}
+          <Camera
+            className="w-4 h-4 sm:w-5 sm:h-5 transition-transform duration-300 group-hover:scale-110"
+            style={{ color: currentPoster.themeColor?.accent || '#ffffff' }}
           />
         </button>
 
-        {/* Next Movie Button */}
+        {/* Next Button */}
         <button
           id="next-movie-btn"
           onClick={(e) => {
             e.stopPropagation();
             handleNextMovie();
           }}
-          title="Next Movie (Right Arrow / N)"
-          aria-label="Next Movie"
+          title="Next Title (Right Arrow / N)"
+          aria-label="Next Title"
           className="group flex items-center justify-center w-8 h-8 rounded-full bg-white/5 hover:bg-white/15 text-neutral-300 hover:text-white border border-white/10 hover:border-white/30 transition-all duration-200 cursor-pointer active:scale-90"
         >
           <ChevronRight className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-0.5" />
         </button>
 
-        {/* Play Movie Fullscreen Player Button (Placed before Search icon) */}
+        {/* Play Fullscreen Player Button */}
         <button
           id="bottom-play-movie-btn"
           onClick={(e) => {
@@ -536,8 +711,8 @@ export default function App() {
             sound.playOkClick();
             setIsPlayerOpen(true);
           }}
-          title="Watch Fullscreen Movie (Play)"
-          aria-label="Play Movie"
+          title="Watch Fullscreen (Play)"
+          aria-label="Play Title"
           className="group flex items-center justify-center w-8 h-8 rounded-full bg-white/5 hover:bg-red-500/20 text-neutral-300 hover:text-red-400 border border-white/10 hover:border-red-500/40 transition-all duration-200 cursor-pointer active:scale-90 shadow-[0_0_10px_rgba(239,68,68,0.2)]"
         >
           <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
@@ -551,36 +726,42 @@ export default function App() {
             sound.playOkClick();
             setIsSearchOpen(true);
           }}
-          title="Search Movies & Browse Top 100"
-          aria-label="Search Movies"
+          title="Search & Browse Catalog ( / or K )"
+          aria-label="Search"
           className="group flex items-center justify-center w-8 h-8 rounded-full bg-white/5 hover:bg-cyan-500/20 text-neutral-300 hover:text-cyan-300 border border-white/10 hover:border-cyan-400/40 transition-all duration-200 cursor-pointer active:scale-90"
         >
           <Search className="w-3.5 h-3.5" />
         </button>
-      </div>
+      </nav>
 
-      {/* CinemaOS Fullscreen Movie Player Modal */}
+      {/* CinemaOS Fullscreen Player Modal */}
       <MoviePlayerModal
         isOpen={isPlayerOpen}
         onClose={() => setIsPlayerOpen(false)}
         poster={currentPoster}
       />
 
-      {/* Worldwide TMDB Search & 100 Movies Explorer Popup Modal */}
+      {/* Worldwide TMDB Search & Explorer Modal */}
       <SearchModal
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
         onSelectMovie={handleSelectSearchedMovie}
-        loadedMovies={movies}
+        onPlayDirectly={(poster) => {
+          handleSelectSearchedMovie(poster, activeMediaType);
+          setIsPlayerOpen(true);
+        }}
+        activeMode={activeMediaType}
+        onModeChange={(newMode) => handleCategorySwitch(newMode)}
+        loadedMovies={activeCatalog}
         currentMovieId={currentPoster.id}
       />
 
       {/* Dynamic Web Shooter Canvas Layer */}
-      <SpiderWebCanvas webs={webs} accentColor={currentPoster.themeColor.accent} />
+      <SpiderWebCanvas webs={webs} accentColor={currentPoster.themeColor?.accent || '#38bdf8'} />
 
       {/* Main Multi-layered 3D Parallax Poster */}
       <PosterLayers
-        key={currentPoster.id}
+        key={`${activeMediaType}-${currentPoster.id}`}
         poster={currentPoster}
         parallax={isCapturing ? { x: 0, y: -0.58, rotateX: 7.68, rotateY: 0 } : parallax}
         showSpideySense={showSpideySense}

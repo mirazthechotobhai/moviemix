@@ -45,6 +45,13 @@ export interface PosterData {
   atmosphereOverlay?: string;
   spiderLogoVariant?: 'classic' | 'modern' | 'verse' | 'symbiote' | 'retro' | 'joker' | 'bat' | string;
   soundtrackTitle?: string;
+  mediaType?: 'movie' | 'tv' | 'anime' | 'live';
+  streamUrl?: string;
+  channelLogo?: string;
+  channelGroup?: string;
+  anilistId?: number;
+  totalEpisodes?: number;
+  totalSeasons?: number;
 }
 
 export interface WebShot {

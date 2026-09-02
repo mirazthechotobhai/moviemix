@@ -28,6 +28,15 @@ const GENRE_MAP: Record<number, string> = {
   53: 'Thriller',
   10752: 'War',
   37: 'Western',
+  // TV specific genres
+  10759: 'Action & Adventure',
+  10762: 'Kids',
+  10763: 'News',
+  10764: 'Reality',
+  10765: 'Sci-Fi & Fantasy',
+  10766: 'Soap',
+  10767: 'Talk',
+  10768: 'War & Politics',
 };
 
 const GENRE_PALETTES: Record<number, { primary: string; secondary: string; accent: string; glow: string; border: string; bgGradient: string }> = {
@@ -228,6 +237,36 @@ export async function fetchMovieDetails(movieId: number): Promise<{
   }
 }
 
+// Fetch TV show details including number of seasons and season episode list
+export async function fetchTVDetails(tvId: number): Promise<{
+  numberOfSeasons: number;
+  numberOfEpisodes: number;
+  seasons: { season_number: number; episode_count: number; name: string }[];
+} | null> {
+  try {
+    const res = await fetch(
+      `https://api.themoviedb.org/3/tv/${tvId}?api_key=${TMDB_API_KEY}`
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const seasons = (data.seasons || [])
+      .filter((s: any) => s && s.season_number > 0)
+      .map((s: any) => ({
+        season_number: s.season_number,
+        episode_count: s.episode_count || 10,
+        name: s.name || `Season ${s.season_number}`,
+      }));
+
+    return {
+      numberOfSeasons: data.number_of_seasons || seasons.length || 1,
+      numberOfEpisodes: data.number_of_episodes || 10,
+      seasons,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function transformTmdbMovie(m: any, detailedInfo?: any): PosterData {
   const { titleLine1, titleLine2 } = formatMovieTitle(m.title || m.original_title || 'UNTITLED');
   const genreIds: number[] = m.genre_ids || [];
@@ -298,6 +337,149 @@ export function transformTmdbMovie(m: any, detailedInfo?: any): PosterData {
     textlessPosterUrl,
     spiderLogoVariant: logoVariant,
     soundtrackTitle: 'Original Motion Picture Soundtrack Available Worldwide',
+    mediaType: 'movie',
+  };
+}
+
+export function transformTmdbTV(m: any, detailedInfo?: any): PosterData {
+  const rawTitle = m.name || m.original_name || 'UNTITLED TV SHOW';
+  const { titleLine1, titleLine2 } = formatMovieTitle(rawTitle);
+  const genreIds: number[] = m.genre_ids || [];
+  const primaryGenreId = genreIds.length > 0 ? genreIds[0] : 18;
+  const themeColor = GENRE_PALETTES[primaryGenreId] || {
+    primary: '#06b6d4',
+    secondary: '#3b82f6',
+    accent: '#38bdf8',
+    glow: 'rgba(6, 182, 212, 0.65)',
+    border: 'rgba(6, 182, 212, 0.8)',
+    bgGradient: 'from-cyan-950 via-neutral-950 to-blue-950',
+  };
+  const year = m.first_air_date ? m.first_air_date.split('-')[0] : '2025';
+  const formattedRelease = formatDate(m.first_air_date);
+
+  const genresList = genreIds.map((id) => GENRE_MAP[id] || 'TV Show').slice(0, 3);
+  if (genresList.length === 0) genresList.push('TV Series');
+
+  const posterPath = typeof m.poster_path === 'string' && m.poster_path.startsWith('/')
+    ? `${TMDB_POSTER_BASE}${m.poster_path}`
+    : (typeof m.backdrop_path === 'string' && m.backdrop_path.startsWith('/')
+        ? `${TMDB_POSTER_BASE}${m.backdrop_path}`
+        : FALLBACK_POSTERS[0].heroImageUrl);
+
+  const backdropPath = typeof m.backdrop_path === 'string' && m.backdrop_path.startsWith('/')
+    ? `${TMDB_BACKDROP_BASE}${m.backdrop_path}`
+    : posterPath;
+
+  const bgImageUrl = backdropPath;
+  const heroImageUrl = posterPath;
+  const textlessPosterUrl = detailedInfo?.textlessPosterUrl || posterPath;
+
+  const titleLower = rawTitle.toLowerCase();
+  let logoVariant: PosterData['spiderLogoVariant'] = 'modern';
+  if (titleLower.includes('batman')) logoVariant = 'bat';
+  else if (titleLower.includes('spider')) logoVariant = 'verse';
+
+  const defaultTagline = detailedInfo?.tagline || (m.overview ? m.overview.slice(0, 95).toUpperCase() : 'TELEVISION PREMIERE & GLOBAL STREAMING');
+  const defaultCompanies = detailedInfo?.productionCompanies || ['HBO • NETFLIX • APPLE TV+ • DISNEY+'];
+
+  return {
+    id: `tv-${m.id}`,
+    tmdbId: m.id,
+    title: rawTitle.toUpperCase(),
+    titleLine1,
+    titleLine2,
+    subtitle: genresList.join(' • ').toUpperCase(),
+    tagline: defaultTagline,
+    releaseDate: formattedRelease,
+    releaseVenue: 'STREAMING NOW ON ALL SCREENS & 4K HDR',
+    rating: m.adult ? 'TV-MA' : 'TV-14',
+    year,
+    studioPresenter: defaultCompanies.slice(0, 2).join(' • ').toUpperCase(),
+    themeColor,
+    synopsis: m.overview || 'Stream this critically acclaimed television series with episodic excellence.',
+    overview: m.overview || 'No overview available.',
+    genres: genresList,
+    voteAverage: m.vote_average ? Number(m.vote_average.toFixed(1)) : 8.2,
+    voteCount: m.vote_count || 320,
+    runtime: detailedInfo?.runtime,
+    popularity: m.popularity ? Math.round(m.popularity) : 150,
+    productionCompanies: defaultCompanies,
+    cast: detailedInfo?.cast || [
+      { actor: 'SERIES CAST', character: 'Principal Roles' },
+      { actor: 'TMDB SCORE', character: `${m.vote_average?.toFixed(1) || '8.2'}/10` },
+    ],
+    director: detailedInfo?.director || 'SHOWRUNNER & EXECUTIVE PRODUCERS',
+    musicBy: detailedInfo?.musicBy || 'ORIGINAL SERIES COMPOSER',
+    bgImageUrl,
+    heroImageUrl,
+    textlessPosterUrl,
+    spiderLogoVariant: logoVariant,
+    soundtrackTitle: 'Official Television Soundtrack & Score',
+    mediaType: 'tv',
+  };
+}
+
+export function transformTmdbAnime(m: any, detailedInfo?: any): PosterData {
+  const rawTitle = m.name || m.title || m.original_name || m.original_title || 'UNTITLED ANIME';
+  const { titleLine1, titleLine2 } = formatMovieTitle(rawTitle);
+  const genreIds: number[] = m.genre_ids || [16];
+  const themeColor = {
+    primary: '#ec4899',
+    secondary: '#8b5cf6',
+    accent: '#f43f5e',
+    glow: 'rgba(236, 72, 153, 0.7)',
+    border: 'rgba(236, 72, 153, 0.85)',
+    bgGradient: 'from-pink-950 via-neutral-950 to-purple-950',
+  };
+  const dateStr = m.first_air_date || m.release_date;
+  const year = dateStr ? dateStr.split('-')[0] : '2025';
+  const formattedRelease = formatDate(dateStr);
+
+  const genresList = ['Anime', ...genreIds.map((id) => GENRE_MAP[id] || '').filter(Boolean)].slice(0, 3);
+
+  const posterPath = typeof m.poster_path === 'string' && m.poster_path.startsWith('/')
+    ? `${TMDB_POSTER_BASE}${m.poster_path}`
+    : (typeof m.backdrop_path === 'string' && m.backdrop_path.startsWith('/')
+        ? `${TMDB_POSTER_BASE}${m.backdrop_path}`
+        : FALLBACK_POSTERS[0].heroImageUrl);
+
+  const backdropPath = typeof m.backdrop_path === 'string' && m.backdrop_path.startsWith('/')
+    ? `${TMDB_BACKDROP_BASE}${m.backdrop_path}`
+    : posterPath;
+
+  return {
+    id: `anime-${m.id}`,
+    tmdbId: m.id,
+    title: rawTitle.toUpperCase(),
+    titleLine1,
+    titleLine2,
+    subtitle: genresList.join(' • ').toUpperCase(),
+    tagline: (m.overview ? m.overview.slice(0, 95).toUpperCase() : 'LEGENDARY JAPANESE ANIMATION BROADCAST'),
+    releaseDate: formattedRelease,
+    releaseVenue: 'PREMIUM ANIME BROADCAST & ULTRA HD STREAMING',
+    rating: m.adult ? '18+' : 'PG-13',
+    year,
+    studioPresenter: 'MAPPA • UFOTABLE • TOEI ANIMATION • WIT STUDIO',
+    themeColor,
+    synopsis: m.overview || 'Experience this masterwork of Japanese animation with high-octane visual artistry.',
+    overview: m.overview || 'No overview available.',
+    genres: genresList,
+    voteAverage: m.vote_average ? Number(m.vote_average.toFixed(1)) : 8.6,
+    voteCount: m.vote_count || 450,
+    popularity: m.popularity ? Math.round(m.popularity) : 200,
+    productionCompanies: ['STUDIO MAPPA', 'UFOTABLE', 'TOHO ANIMATION', 'ANIPLEX'],
+    cast: [
+      { actor: 'ORIGINAL VOICE CAST', character: 'Main Protagonists' },
+      { actor: 'TMDB SCORE', character: `${m.vote_average?.toFixed(1) || '8.6'}/10` },
+    ],
+    director: detailedInfo?.director || 'ACCLAIMED ANIME DIRECTOR',
+    musicBy: detailedInfo?.musicBy || 'ICONIC ANIME OST & OPENINGS',
+    bgImageUrl: backdropPath,
+    heroImageUrl: posterPath,
+    textlessPosterUrl: posterPath,
+    spiderLogoVariant: 'verse',
+    soundtrackTitle: 'Official Anime Soundtrack & Opening Themes',
+    mediaType: 'anime',
   };
 }
 
@@ -489,6 +671,283 @@ export async function fetchInfiniteCatalog(
   }
 }
 
+// TV Shows APIs
+export async function fetchTop100TVShows(): Promise<PosterData[]> {
+  try {
+    const endpoints = [
+      `https://api.themoviedb.org/3/trending/tv/week?api_key=${TMDB_API_KEY}&page=1&language=en-US`,
+      `https://api.themoviedb.org/3/trending/tv/week?api_key=${TMDB_API_KEY}&page=2&language=en-US`,
+      `https://api.themoviedb.org/3/tv/popular?api_key=${TMDB_API_KEY}&page=1&language=en-US`,
+      `https://api.themoviedb.org/3/tv/popular?api_key=${TMDB_API_KEY}&page=2&language=en-US`,
+      `https://api.themoviedb.org/3/tv/top_rated?api_key=${TMDB_API_KEY}&page=1&language=en-US`,
+      `https://api.themoviedb.org/3/tv/on_the_air?api_key=${TMDB_API_KEY}&page=1&language=en-US`,
+    ];
+
+    const responses = await Promise.allSettled(
+      endpoints.map(async (url) => {
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 7000);
+        const res = await fetch(url, { signal: ctrl.signal });
+        clearTimeout(tid);
+        if (!res.ok) return [];
+        const json = await res.json();
+        return json.results || [];
+      })
+    );
+
+    const rawList: any[] = [];
+    const seenIds = new Set<number>();
+
+    for (const r of responses) {
+      if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+        for (const item of r.value) {
+          if (
+            item &&
+            item.id &&
+            !seenIds.has(item.id) &&
+            ((typeof item.poster_path === 'string' && item.poster_path.startsWith('/')) ||
+              (typeof item.backdrop_path === 'string' && item.backdrop_path.startsWith('/')))
+          ) {
+            seenIds.add(item.id);
+            rawList.push(item);
+          }
+        }
+      }
+    }
+
+    const transformed = rawList.map((m) => transformTmdbTV(m));
+    const target100 = transformed.slice(0, 100);
+    preloadPosterImages(target100.slice(0, 6));
+    return target100;
+  } catch (err) {
+    console.error('Error fetching top 100 TV shows:', err);
+    return [];
+  }
+}
+
+export async function fetchInfiniteTVCatalog(
+  page: number = 1,
+  category: 'trending' | 'popular' | 'top_rated' | 'on_the_air' | 'all' = 'all'
+): Promise<{ movies: PosterData[]; hasMore: boolean }> {
+  try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 7000);
+
+    let url = `https://api.themoviedb.org/3/trending/tv/week?api_key=${TMDB_API_KEY}&page=${page}&language=en-US`;
+    if (category === 'popular') {
+      url = `https://api.themoviedb.org/3/tv/popular?api_key=${TMDB_API_KEY}&page=${page}&language=en-US`;
+    } else if (category === 'top_rated') {
+      url = `https://api.themoviedb.org/3/tv/top_rated?api_key=${TMDB_API_KEY}&page=${page}&language=en-US`;
+    } else if (category === 'on_the_air') {
+      url = `https://api.themoviedb.org/3/tv/on_the_air?api_key=${TMDB_API_KEY}&page=${page}&language=en-US`;
+    } else if (category === 'all') {
+      const endpoints = [
+        `https://api.themoviedb.org/3/trending/tv/week?api_key=${TMDB_API_KEY}&page=${page}&language=en-US`,
+        `https://api.themoviedb.org/3/discover/tv?api_key=${TMDB_API_KEY}&page=${page}&sort_by=popularity.desc&vote_count.gte=50&language=en-US`,
+      ];
+      url = endpoints[(page - 1) % endpoints.length];
+    }
+
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(tid);
+
+    if (!res.ok) return { movies: [], hasMore: false };
+    const data = await res.json();
+    const totalPages = data.total_pages || 500;
+    const rawList = (data.results || []).filter(
+      (m: any) =>
+        m &&
+        ((typeof m.poster_path === 'string' && m.poster_path.startsWith('/')) ||
+          (typeof m.backdrop_path === 'string' && m.backdrop_path.startsWith('/')))
+    );
+
+    const tvShows = rawList.map((m: any) => transformTmdbTV(m));
+    return {
+      movies: tvShows,
+      hasMore: page < totalPages,
+    };
+  } catch (err) {
+    console.error('Error fetching infinite TV catalog:', err);
+    return { movies: [], hasMore: false };
+  }
+}
+
+export async function searchTmdbTVPaged(
+  query: string,
+  page: number = 1
+): Promise<{ movies: PosterData[]; hasMore: boolean; totalPages: number }> {
+  const trimmed = query.trim();
+  if (!trimmed) return { movies: [], hasMore: false, totalPages: 0 };
+
+  try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 7000);
+    const url = `https://api.themoviedb.org/3/search/tv?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(
+      trimmed
+    )}&include_adult=false&language=en-US&page=${page}`;
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(tid);
+
+    if (!res.ok) return { movies: [], hasMore: false, totalPages: 0 };
+    const data = await res.json();
+    const totalPages = data.total_pages || 1;
+    const rawList = (data.results || []).filter(
+      (m: any) =>
+        m &&
+        ((typeof m.poster_path === 'string' && m.poster_path.startsWith('/')) ||
+          (typeof m.backdrop_path === 'string' && m.backdrop_path.startsWith('/')))
+    );
+
+    const movies = rawList.map((m: any) => transformTmdbTV(m));
+    return {
+      movies,
+      hasMore: page < totalPages,
+      totalPages,
+    };
+  } catch (err) {
+    console.error('Error searching TMDB TV shows:', err);
+    return { movies: [], hasMore: false, totalPages: 0 };
+  }
+}
+
+// Anime APIs (Animation from Japan + Iconic anime series)
+export async function fetchTop100Anime(): Promise<PosterData[]> {
+  try {
+    const endpoints = [
+      `https://api.themoviedb.org/3/discover/tv?api_key=${TMDB_API_KEY}&with_genres=16&with_original_language=ja&sort_by=popularity.desc&page=1`,
+      `https://api.themoviedb.org/3/discover/tv?api_key=${TMDB_API_KEY}&with_genres=16&with_original_language=ja&sort_by=popularity.desc&page=2`,
+      `https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_API_KEY}&with_genres=16&with_original_language=ja&sort_by=popularity.desc&page=1`,
+      `https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_API_KEY}&with_genres=16&with_original_language=ja&sort_by=popularity.desc&page=2`,
+      `https://api.themoviedb.org/3/discover/tv?api_key=${TMDB_API_KEY}&with_genres=16&with_original_language=ja&sort_by=vote_count.desc&page=1`,
+      `https://api.themoviedb.org/3/discover/tv?api_key=${TMDB_API_KEY}&with_genres=16&with_original_language=ja&sort_by=popularity.desc&page=3`,
+    ];
+
+    const responses = await Promise.allSettled(
+      endpoints.map(async (url) => {
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 7000);
+        const res = await fetch(url, { signal: ctrl.signal });
+        clearTimeout(tid);
+        if (!res.ok) return [];
+        const json = await res.json();
+        return json.results || [];
+      })
+    );
+
+    const rawList: any[] = [];
+    const seenIds = new Set<number>();
+
+    for (const r of responses) {
+      if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+        for (const item of r.value) {
+          if (
+            item &&
+            item.id &&
+            !seenIds.has(item.id) &&
+            ((typeof item.poster_path === 'string' && item.poster_path.startsWith('/')) ||
+              (typeof item.backdrop_path === 'string' && item.backdrop_path.startsWith('/')))
+          ) {
+            seenIds.add(item.id);
+            rawList.push(item);
+          }
+        }
+      }
+    }
+
+    const transformed = rawList.map((m) => transformTmdbAnime(m));
+    const target100 = transformed.slice(0, 100);
+    preloadPosterImages(target100.slice(0, 6));
+    return target100;
+  } catch (err) {
+    console.error('Error fetching top 100 Anime:', err);
+    return [];
+  }
+}
+
+export async function fetchInfiniteAnimeCatalog(
+  page: number = 1
+): Promise<{ movies: PosterData[]; hasMore: boolean }> {
+  try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 7000);
+
+    const isTVPage = page % 2 === 1;
+    const subPage = Math.ceil(page / 2);
+    const url = isTVPage
+      ? `https://api.themoviedb.org/3/discover/tv?api_key=${TMDB_API_KEY}&with_genres=16&with_original_language=ja&sort_by=popularity.desc&page=${subPage}`
+      : `https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_API_KEY}&with_genres=16&with_original_language=ja&sort_by=popularity.desc&page=${subPage}`;
+
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(tid);
+
+    if (!res.ok) return { movies: [], hasMore: false };
+    const data = await res.json();
+    const totalPages = data.total_pages || 250;
+    const rawList = (data.results || []).filter(
+      (m: any) =>
+        m &&
+        ((typeof m.poster_path === 'string' && m.poster_path.startsWith('/')) ||
+          (typeof m.backdrop_path === 'string' && m.backdrop_path.startsWith('/')))
+    );
+
+    const animes = rawList.map((m: any) => transformTmdbAnime(m));
+    return {
+      movies: animes,
+      hasMore: page < totalPages * 2,
+    };
+  } catch (err) {
+    console.error('Error fetching infinite Anime catalog:', err);
+    return { movies: [], hasMore: false };
+  }
+}
+
+export async function searchTmdbAnimePaged(
+  query: string,
+  page: number = 1
+): Promise<{ movies: PosterData[]; hasMore: boolean; totalPages: number }> {
+  const trimmed = query.trim();
+  if (!trimmed) return { movies: [], hasMore: false, totalPages: 0 };
+
+  try {
+    const [tvRes, movieRes] = await Promise.allSettled([
+      searchTmdbTVPaged(trimmed, page),
+      searchTmdbMoviesPaged(trimmed, page),
+    ]);
+
+    const combined: PosterData[] = [];
+    const seenIds = new Set<string>();
+
+    if (tvRes.status === 'fulfilled') {
+      tvRes.value.movies.forEach((m) => {
+        if (!seenIds.has(m.id)) {
+          seenIds.add(m.id);
+          combined.push({ ...m, mediaType: 'anime' });
+        }
+      });
+    }
+
+    if (movieRes.status === 'fulfilled') {
+      movieRes.value.movies.forEach((m) => {
+        if (!seenIds.has(m.id)) {
+          seenIds.add(m.id);
+          combined.push({ ...m, mediaType: 'anime' });
+        }
+      });
+    }
+
+    return {
+      movies: combined,
+      hasMore:
+        (tvRes.status === 'fulfilled' && tvRes.value.hasMore) ||
+        (movieRes.status === 'fulfilled' && movieRes.value.hasMore),
+      totalPages: 10,
+    };
+  } catch (err) {
+    console.error('Error searching Anime:', err);
+    return { movies: [], hasMore: false, totalPages: 0 };
+  }
+}
+
 // Backward compatibility alias
 export async function searchTmdbMovies(query: string): Promise<PosterData[]> {
   const res = await searchTmdbMoviesPaged(query, 1);
@@ -509,3 +968,4 @@ export function preloadPosterImages(posters: PosterData[]) {
     }
   });
 }
+
