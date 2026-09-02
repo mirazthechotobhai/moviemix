@@ -9,12 +9,18 @@ import {
   Loader2,
   Compass,
   CheckCircle2,
-  Clapperboard,
+  Globe,
+  Languages,
+  Calendar,
+  Filter,
+  RotateCcw,
+  Sparkle,
   Flame,
   Infinity as InfinityIcon,
   TrendingUp,
   Award,
   Play,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { PosterData } from '../types';
 import {
@@ -24,6 +30,11 @@ import {
   searchTmdbTVPaged,
   fetchTop100TVShows,
   preloadPosterImages,
+  MOVIE_GENRES,
+  TV_GENRES,
+  POPULAR_COUNTRIES,
+  POPULAR_LANGUAGES,
+  discoverTmdbMediaPaged,
 } from '../services/tmdb';
 import {
   fetchTop100AniListAnime,
@@ -51,15 +62,25 @@ export const SearchModal: React.FC<SearchModalProps> = ({
   isOpen,
   onClose,
   onSelectMovie,
-  onPlayDirectly,
   activeMode,
   onModeChange,
   loadedMovies,
   currentMovieId,
 }) => {
   const [query, setQuery] = useState<string>('');
-  const [activeCategory, setActiveCategory] = useState<StreamCategory>('all');
-  const [selectedGenre, setSelectedGenre] = useState<string>('ALL');
+  const [activeCategory, setActiveCategory] = useState<StreamCategory>('trending');
+  const [showFilters, setShowFilters] = useState<boolean>(true);
+
+  // Discover & Filter States
+  const [selectedGenreId, setSelectedGenreId] = useState<string | number>('ALL');
+  const [selectedCountry, setSelectedCountry] = useState<string>('');
+  const [selectedLanguage, setSelectedLanguage] = useState<string>('');
+  const [selectedYear, setSelectedYear] = useState<string>('');
+  const [isDiscoverActive, setIsDiscoverActive] = useState<boolean>(false);
+  const [discoverResults, setDiscoverResults] = useState<PosterData[]>([]);
+  const [discoverPage, setDiscoverPage] = useState<number>(1);
+  const [isDiscoverLoading, setIsDiscoverLoading] = useState<boolean>(false);
+  const [hasMoreDiscover, setHasMoreDiscover] = useState<boolean>(false);
 
   // Movies State
   const [catalogMovies, setCatalogMovies] = useState<PosterData[]>([]);
@@ -89,7 +110,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  // Sync loaded items into current catalog when opened
+  // Focus & initial load
   useEffect(() => {
     if (isOpen) {
       if (activeMode === 'movies' && catalogMovies.length === 0 && loadedMovies.length > 0) {
@@ -97,11 +118,11 @@ export const SearchModal: React.FC<SearchModalProps> = ({
       }
       setTimeout(() => {
         inputRef.current?.focus();
-      }, 120);
+      }, 100);
     }
   }, [isOpen, activeMode, loadedMovies, catalogMovies.length]);
 
-  // Lazy load TV Shows when TV mode is active
+  // Lazy load TV Shows
   useEffect(() => {
     if (isOpen && activeMode === 'tv' && tvShows.length === 0 && !isTvLoading) {
       setIsTvLoading(true);
@@ -115,7 +136,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
     }
   }, [isOpen, activeMode, tvShows.length, isTvLoading]);
 
-  // Lazy load Anime when Anime mode is active
+  // Lazy load Anime
   useEffect(() => {
     if (isOpen && activeMode === 'anime' && animeList.length === 0 && !isAnimeLoading) {
       setIsAnimeLoading(true);
@@ -129,18 +150,107 @@ export const SearchModal: React.FC<SearchModalProps> = ({
     }
   }, [isOpen, activeMode, animeList.length, isAnimeLoading]);
 
-  // Mode change handler (Movies, TV, Anime)
+  // Available genre options
+  const availableGenres = useMemo(() => {
+    if (activeMode === 'movies') return MOVIE_GENRES;
+    if (activeMode === 'tv') return TV_GENRES;
+    return [
+      { id: 16, name: 'Animation' },
+      { id: 28, name: 'Action' },
+      { id: 12, name: 'Adventure' },
+      { id: 35, name: 'Comedy' },
+      { id: 14, name: 'Fantasy' },
+      { id: 878, name: 'Sci-Fi' },
+      { id: 18, name: 'Drama' },
+      { id: 10749, name: 'Romance' },
+      { id: 27, name: 'Horror' },
+      { id: 9648, name: 'Mystery' },
+    ];
+  }, [activeMode]);
+
+  // Handle Mode Change (Movies, TV Shows, Anime)
   const handleCategoryModeSwitch = (mode: SearchMode) => {
     sound.playOkClick();
     onModeChange(mode);
     setQuery('');
-    setSelectedGenre('ALL');
+    setSelectedGenreId('ALL');
+    setIsDiscoverActive(false);
+    setDiscoverResults([]);
     setSearchResults([]);
     setSearchPage(1);
     setHasMoreSearch(false);
   };
 
-  // Search input debouncer depending on activeMode
+  // Perform Discover Query
+  const handleDiscover = useCallback(
+    async (override?: {
+      genreId?: string | number;
+      country?: string;
+      language?: string;
+      year?: string;
+    }) => {
+      sound.playOkClick();
+      const gId = override?.genreId !== undefined ? override.genreId : selectedGenreId;
+      const ctry = override?.country !== undefined ? override.country : selectedCountry;
+      const lang = override?.language !== undefined ? override.language : selectedLanguage;
+      const yr = override?.year !== undefined ? override.year : selectedYear;
+
+      if ((gId === 'ALL' || !gId) && !ctry && !lang && !yr?.trim()) {
+        setIsDiscoverActive(false);
+        setDiscoverResults([]);
+        setDiscoverPage(1);
+        setHasMoreDiscover(false);
+        return;
+      }
+
+      setQuery('');
+      setIsDiscoverLoading(true);
+      setIsDiscoverActive(true);
+      setDiscoverPage(1);
+
+      try {
+        const res = await discoverTmdbMediaPaged({
+          mediaType: activeMode,
+          genreId: gId,
+          country: ctry,
+          language: lang,
+          year: yr,
+          page: 1,
+        });
+        setDiscoverResults(res.movies);
+        setHasMoreDiscover(res.hasMore);
+        preloadPosterImages(res.movies.slice(0, 4));
+      } catch (err) {
+        console.error('Discover error:', err);
+        setDiscoverResults([]);
+      } finally {
+        setIsDiscoverLoading(false);
+      }
+    },
+    [activeMode, selectedGenreId, selectedCountry, selectedLanguage, selectedYear]
+  );
+
+  // Reset Filters
+  const handleResetFilters = () => {
+    sound.playOkClick();
+    setSelectedGenreId('ALL');
+    setSelectedCountry('');
+    setSelectedLanguage('');
+    setSelectedYear('');
+    setIsDiscoverActive(false);
+    setDiscoverResults([]);
+    setDiscoverPage(1);
+    setHasMoreDiscover(false);
+  };
+
+  // Quick Genre selection
+  const handleQuickGenreClick = (genreId: number | string) => {
+    sound.playOkClick();
+    setSelectedGenreId(genreId);
+    handleDiscover({ genreId });
+  };
+
+  // Search input debouncer
   useEffect(() => {
     const trimmed = query.trim();
     if (!trimmed) {
@@ -151,7 +261,9 @@ export const SearchModal: React.FC<SearchModalProps> = ({
       return;
     }
 
+    setIsDiscoverActive(false);
     setIsSearchLoading(true);
+
     const handler = setTimeout(async () => {
       try {
         if (activeMode === 'movies') {
@@ -179,16 +291,15 @@ export const SearchModal: React.FC<SearchModalProps> = ({
       } finally {
         setIsSearchLoading(false);
       }
-    }, 320);
+    }, 300);
 
     return () => clearTimeout(handler);
   }, [query, activeMode]);
 
-  // Infinite Scroll page loaders for each mode
+  // Infinite Scroll loader
   const loadNextPage = useCallback(async () => {
     const trimmed = query.trim();
 
-    // 1. Search pagination
     if (trimmed) {
       if (isSearchLoading || !hasMoreSearch) return;
       setIsSearchLoading(true);
@@ -205,7 +316,6 @@ export const SearchModal: React.FC<SearchModalProps> = ({
             });
             setSearchPage(nextPage);
             setHasMoreSearch(res.hasMore);
-            preloadPosterImages(res.movies.slice(0, 4));
           } else {
             setHasMoreSearch(false);
           }
@@ -219,7 +329,6 @@ export const SearchModal: React.FC<SearchModalProps> = ({
             });
             setSearchPage(nextPage);
             setHasMoreSearch(res.hasMore);
-            preloadPosterImages(res.movies.slice(0, 4));
           } else {
             setHasMoreSearch(false);
           }
@@ -233,7 +342,6 @@ export const SearchModal: React.FC<SearchModalProps> = ({
             });
             setSearchPage(nextPage);
             setHasMoreSearch(res.hasMore);
-            preloadPosterImages(res.anime.slice(0, 4));
           } else {
             setHasMoreSearch(false);
           }
@@ -246,7 +354,40 @@ export const SearchModal: React.FC<SearchModalProps> = ({
       return;
     }
 
-    // 2. Movies Catalog pagination
+    if (isDiscoverActive && !trimmed) {
+      if (isDiscoverLoading || !hasMoreDiscover) return;
+      setIsDiscoverLoading(true);
+      const nextPage = discoverPage + 1;
+
+      try {
+        const res = await discoverTmdbMediaPaged({
+          mediaType: activeMode,
+          genreId: selectedGenreId,
+          country: selectedCountry,
+          language: selectedLanguage,
+          year: selectedYear,
+          page: nextPage,
+        });
+
+        if (res.movies.length > 0) {
+          setDiscoverResults((prev) => {
+            const seenIds = new Set(prev.map((m) => m.id));
+            const fresh = res.movies.filter((m) => !seenIds.has(m.id));
+            return [...prev, ...fresh];
+          });
+          setDiscoverPage(nextPage);
+          setHasMoreDiscover(res.hasMore);
+        } else {
+          setHasMoreDiscover(false);
+        }
+      } catch (err) {
+        console.error('Failed to load next discover page:', err);
+      } finally {
+        setIsDiscoverLoading(false);
+      }
+      return;
+    }
+
     if (activeMode === 'movies' && !trimmed) {
       if (isMovieLoading || !hasMoreMovie) return;
       setIsMovieLoading(true);
@@ -273,7 +414,6 @@ export const SearchModal: React.FC<SearchModalProps> = ({
           });
           setMoviePage(nextPage);
           setHasMoreMovie(res.hasMore);
-          preloadPosterImages(res.movies.slice(0, 4));
         } else {
           setHasMoreMovie(false);
         }
@@ -285,7 +425,6 @@ export const SearchModal: React.FC<SearchModalProps> = ({
       return;
     }
 
-    // 3. TV Shows Catalog pagination
     if (activeMode === 'tv' && !trimmed) {
       if (isTvLoading || !hasMoreTv) return;
       setIsTvLoading(true);
@@ -301,7 +440,6 @@ export const SearchModal: React.FC<SearchModalProps> = ({
           });
           setTvPage(nextPage);
           setHasMoreTv(res.hasMore);
-          preloadPosterImages(res.movies.slice(0, 4));
         } else {
           setHasMoreTv(false);
         }
@@ -313,7 +451,6 @@ export const SearchModal: React.FC<SearchModalProps> = ({
       return;
     }
 
-    // 4. Anime Catalog pagination (AniList GraphQL API)
     if (activeMode === 'anime' && !trimmed) {
       if (isAnimeLoading || !hasMoreAnime) return;
       setIsAnimeLoading(true);
@@ -329,7 +466,6 @@ export const SearchModal: React.FC<SearchModalProps> = ({
           });
           setAnimePage(nextPage);
           setHasMoreAnime(res.hasMore);
-          preloadPosterImages(res.anime.slice(0, 4));
         } else {
           setHasMoreAnime(false);
         }
@@ -346,6 +482,14 @@ export const SearchModal: React.FC<SearchModalProps> = ({
     isSearchLoading,
     hasMoreSearch,
     searchPage,
+    isDiscoverActive,
+    isDiscoverLoading,
+    hasMoreDiscover,
+    discoverPage,
+    selectedGenreId,
+    selectedCountry,
+    selectedLanguage,
+    selectedYear,
     isMovieLoading,
     hasMoreMovie,
     moviePage,
@@ -358,23 +502,21 @@ export const SearchModal: React.FC<SearchModalProps> = ({
     animePage,
   ]);
 
-  // IntersectionObserver for Infinite Scrolling Trigger
+  // Observer for Sentinel
   useEffect(() => {
     if (!isOpen) return;
-
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
-        const entry = entries[0];
-        if (entry.isIntersecting) {
+        if (entries[0].isIntersecting) {
           loadNextPage();
         }
       },
       {
         root: scrollContainerRef.current,
-        rootMargin: '400px',
+        rootMargin: '350px',
         threshold: 0.1,
       }
     );
@@ -383,46 +525,35 @@ export const SearchModal: React.FC<SearchModalProps> = ({
     return () => observer.disconnect();
   }, [isOpen, activeMode, loadNextPage]);
 
-  // Available genres for the current mode
-  const genres = useMemo(() => {
-    let list: PosterData[] = [];
-    if (query.trim()) {
-      list = searchResults;
-    } else if (activeMode === 'movies') {
-      list = activeCategory === 'top100' ? loadedMovies : catalogMovies.length > 0 ? catalogMovies : loadedMovies;
-    } else if (activeMode === 'tv') {
-      list = tvShows.length > 0 ? tvShows : loadedMovies;
-    } else if (activeMode === 'anime') {
-      list = animeList.length > 0 ? animeList : loadedMovies;
-    }
-
-    const set = new Set<string>();
-    list.forEach((m) => m.genres.forEach((g) => set.add(g)));
-    return ['ALL', ...Array.from(set).slice(0, 10)];
-  }, [activeMode, query, searchResults, activeCategory, loadedMovies, catalogMovies, tvShows, animeList]);
-
-  // Filtered list of items for Movies / TV / Anime
+  // Display items
   const displayItems = useMemo(() => {
-    let list: PosterData[] = [];
-    if (query.trim()) {
-      list = searchResults;
-    } else if (activeMode === 'movies') {
-      list = activeCategory === 'top100' ? loadedMovies : catalogMovies.length > 0 ? catalogMovies : loadedMovies;
-    } else if (activeMode === 'tv') {
-      list = tvShows.length > 0 ? tvShows : loadedMovies;
-    } else if (activeMode === 'anime') {
-      list = animeList.length > 0 ? animeList : loadedMovies;
+    if (query.trim()) return searchResults;
+    if (isDiscoverActive) return discoverResults;
+    if (activeMode === 'movies') {
+      return activeCategory === 'top100' ? loadedMovies : catalogMovies.length > 0 ? catalogMovies : loadedMovies;
     }
-
-    if (selectedGenre !== 'ALL') {
-      list = list.filter((m) => m.genres.includes(selectedGenre));
+    if (activeMode === 'tv') {
+      return tvShows.length > 0 ? tvShows : loadedMovies;
     }
-    return list;
-  }, [activeMode, query, searchResults, activeCategory, loadedMovies, catalogMovies, tvShows, animeList, selectedGenre]);
+    if (activeMode === 'anime') {
+      return animeList.length > 0 ? animeList : loadedMovies;
+    }
+    return loadedMovies;
+  }, [
+    query,
+    searchResults,
+    isDiscoverActive,
+    discoverResults,
+    activeMode,
+    activeCategory,
+    loadedMovies,
+    catalogMovies,
+    tvShows,
+    animeList,
+  ]);
 
   if (!isOpen) return null;
 
-  // Item selection & Projection to Home Page
   const handleItemPick = (item: PosterData) => {
     sound.playOkClick();
     onSelectMovie(item, activeMode);
@@ -432,243 +563,385 @@ export const SearchModal: React.FC<SearchModalProps> = ({
   const isCurrentlyLoading =
     query.trim()
       ? isSearchLoading
+      : isDiscoverActive
+      ? isDiscoverLoading
       : activeMode === 'movies'
       ? isMovieLoading
       : activeMode === 'tv'
       ? isTvLoading
       : isAnimeLoading;
 
+  const hasAnyFilterActive =
+    selectedGenreId !== 'ALL' ||
+    Boolean(selectedCountry) ||
+    Boolean(selectedLanguage) ||
+    Boolean(selectedYear.trim());
+
   return (
     <div
       id="movie-search-popup-overlay"
-      className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-6 bg-black/85 backdrop-blur-xl animate-fade-in"
-      onClick={onClose}
+      className="fixed inset-0 z-[100] w-full h-full h-[100dvh] flex flex-col bg-[#0e1118] text-slate-100 overflow-hidden transition-all duration-300 animate-fade-in"
     >
       <div
         id="movie-search-modal-container"
-        className="relative w-full max-w-5xl max-h-[92vh] flex flex-col bg-[#0b0c10]/95 border border-white/15 rounded-2xl shadow-[0_30px_90px_rgba(0,0,0,0.95)] overflow-hidden text-white screenshot-exclude"
-        onClick={(e) => e.stopPropagation()}
+        className="relative w-full h-full flex flex-col overflow-hidden"
       >
-        {/* Header with 3 Category Mode Buttons and Search Input */}
-        <div className="p-3.5 sm:p-5 border-b border-white/10 flex flex-col gap-3 bg-white/[0.02]">
-          {/* Top Title & Close Button */}
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-red-600/30 to-amber-600/30 border border-red-500/40 flex items-center justify-center text-red-400">
-                <Clapperboard className="w-4 h-4" />
+        {/* Modern Clean Fullscreen Header */}
+        <div className="w-full px-3 py-2.5 sm:px-6 sm:py-3.5 border-b border-white/5 flex flex-col gap-2.5 sm:gap-3 bg-slate-900/60 backdrop-blur-xl shrink-0">
+          {/* Top Bar: Title & Controls */}
+          <div className="flex items-center justify-between gap-2 sm:gap-4">
+            {/* Title & Brand */}
+            <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shrink-0">
+                <Compass className="w-4 h-4" />
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-sm sm:text-base font-black tracking-wider uppercase font-montserrat text-neutral-100">
-                    ENTERTAINMENT HUB & CATEGORY SWITCHER
-                  </h2>
-                </div>
-                <p className="text-[10px] sm:text-xs text-neutral-400 tracking-wider font-montserrat">
-                  Select a category to switch the entire Home Page showcase & Top 100 catalog
-                </p>
+              <div className="truncate">
+                <h2 className="text-sm sm:text-base font-semibold tracking-wide text-white flex items-center gap-2 font-montserrat truncate">
+                  <span>Discover & Search</span>
+                </h2>
               </div>
+            </div>
+
+            {/* Segmented Mode Selector (Movies / TV / Anime) */}
+            <div className="flex items-center bg-slate-950/70 p-1 rounded-xl border border-white/10 shrink-0">
+              <button
+                id="mode-tab-movies"
+                onClick={() => handleCategoryModeSwitch('movies')}
+                className={`flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                  activeMode === 'movies'
+                    ? 'bg-slate-800 text-white shadow-sm border border-white/15'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Film className="w-3.5 h-3.5 text-red-400" />
+                <span>Movies</span>
+              </button>
+
+              <button
+                id="mode-tab-tv"
+                onClick={() => handleCategoryModeSwitch('tv')}
+                className={`flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                  activeMode === 'tv'
+                    ? 'bg-slate-800 text-white shadow-sm border border-white/15'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Tv className="w-3.5 h-3.5 text-cyan-400" />
+                <span>TV Shows</span>
+              </button>
+
+              <button
+                id="mode-tab-anime"
+                onClick={() => handleCategoryModeSwitch('anime')}
+                className={`flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                  activeMode === 'anime'
+                    ? 'bg-slate-800 text-white shadow-sm border border-white/15'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-pink-400" />
+                <span>Anime</span>
+              </button>
             </div>
 
             {/* Close Button */}
             <button
               onClick={onClose}
-              className="p-1.5 sm:p-2 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 text-neutral-400 hover:text-white transition-all cursor-pointer"
-              title="Close (Esc)"
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-colors cursor-pointer shrink-0"
+              title="Close"
             >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* 3 MAIN CATEGORY BUTTONS: Movies (default), TV Shows, Anime */}
-          <div className="grid grid-cols-3 gap-2 pt-1">
-            {/* 1. MOVIES BUTTON */}
-            <button
-              id="mode-tab-movies"
-              onClick={() => handleCategoryModeSwitch('movies')}
-              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-montserrat text-xs sm:text-sm font-bold tracking-wider uppercase transition-all duration-200 cursor-pointer ${
-                activeMode === 'movies'
-                  ? 'bg-gradient-to-r from-red-600 to-amber-600 text-white shadow-[0_0_16px_rgba(239,68,68,0.5)] border border-red-400/50'
-                  : 'bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white border border-white/10'
-              }`}
-            >
-              <Film className="w-4 h-4" />
-              <span>Movies</span>
-            </button>
-
-            {/* 2. TV SHOWS BUTTON */}
-            <button
-              id="mode-tab-tv"
-              onClick={() => handleCategoryModeSwitch('tv')}
-              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-montserrat text-xs sm:text-sm font-bold tracking-wider uppercase transition-all duration-200 cursor-pointer ${
-                activeMode === 'tv'
-                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-[0_0_16px_rgba(6,182,212,0.5)] border border-cyan-400/50'
-                  : 'bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white border border-white/10'
-              }`}
-            >
-              <Tv className="w-4 h-4" />
-              <span>TV Shows</span>
-            </button>
-
-            {/* 3. ANIME BUTTON */}
-            <button
-              id="mode-tab-anime"
-              onClick={() => handleCategoryModeSwitch('anime')}
-              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-montserrat text-xs sm:text-sm font-bold tracking-wider uppercase transition-all duration-200 cursor-pointer ${
-                activeMode === 'anime'
-                  ? 'bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow-[0_0_16px_rgba(236,72,153,0.5)] border border-pink-400/50'
-                  : 'bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white border border-white/10'
-              }`}
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>Anime</span>
+              <X className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
           </div>
 
           {/* Search Input Box */}
-          <div className="relative flex items-center mt-1">
-            <Search className="absolute left-3.5 w-4 h-4 text-neutral-400 pointer-events-none" />
+          <div className="relative flex items-center w-full">
+            <Search className="absolute left-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
             <input
               ref={inputRef}
               type="text"
               value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setSelectedGenre('ALL');
-              }}
+              onChange={(e) => setQuery(e.target.value)}
               placeholder={
                 activeMode === 'movies'
-                  ? 'Search movies (e.g. Inception, Avatar, Dune, Titanic, Interstellar)...'
+                  ? 'Search movies (e.g. Spider-Man, Inception, Dune, Moana, Avatar)...'
                   : activeMode === 'tv'
-                  ? 'Search TV series (e.g. Breaking Bad, Stranger Things, Game of Thrones, Loki)...'
-                  : 'Search anime (e.g. Attack on Titan, Demon Slayer, Jujutsu Kaisen, Naruto, One Piece)...'
+                  ? 'Search TV series (e.g. Breaking Bad, Arcane, Stranger Things)...'
+                  : 'Search anime (e.g. Attack on Titan, Demon Slayer, Jujutsu Kaisen)...'
               }
-              className="w-full bg-black/70 border border-white/20 focus:border-cyan-400 rounded-xl pl-10 pr-24 py-2.5 sm:py-3 text-xs sm:text-sm font-medium placeholder-neutral-500 text-white outline-none transition-all shadow-inner focus:ring-1 focus:ring-cyan-400/50"
+              className="w-full bg-slate-950/70 border border-white/10 focus:border-cyan-400/50 rounded-xl pl-10 pr-24 py-2 sm:py-2.5 text-xs sm:text-sm text-slate-100 placeholder-slate-500 outline-none transition-all focus:ring-2 focus:ring-cyan-500/20"
             />
-            {query && (
-              <button
-                onClick={() => {
-                  setQuery('');
-                  setSelectedGenre('ALL');
-                }}
-                className="absolute right-10 text-neutral-400 hover:text-white p-1"
-                title="Clear search"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-            {isCurrentlyLoading && (
-              <div className="absolute right-3.5">
+            <div className="absolute right-2.5 flex items-center gap-1.5">
+              {query && (
+                <button
+                  onClick={() => setQuery('')}
+                  className="text-slate-400 hover:text-white p-1 rounded-md"
+                  title="Clear search"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {isCurrentlyLoading && (
                 <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
-              </div>
-            )}
+              )}
+              <button
+                type="button"
+                onClick={() => setShowFilters((prev) => !prev)}
+                title="Toggle Filters"
+                className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 transition-all ${
+                  showFilters
+                    ? 'bg-cyan-500/15 border-cyan-500/30 text-cyan-300'
+                    : 'bg-white/5 border-white/10 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
-          {/* Secondary Sub-filters & Genre Chips */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
-            {activeMode === 'movies' && !query.trim() ? (
-              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+          {/* Modern Discover & Filter Bar */}
+          {showFilters && (
+            <div className="p-2.5 sm:p-3 rounded-xl bg-slate-950/60 border border-white/5 flex flex-col gap-2">
+              {/* Filter Selectors Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                {/* 1. Category / Genre */}
+                <div className="relative flex items-center col-span-1">
+                  <Filter className="absolute left-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                  <select
+                    id="discover-genre-select"
+                    value={String(selectedGenreId)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedGenreId(val === 'ALL' ? 'ALL' : Number(val));
+                    }}
+                    className="w-full bg-slate-900 border border-white/10 focus:border-cyan-400/50 rounded-lg pl-7 pr-3 py-1.5 text-xs text-slate-200 outline-none cursor-pointer appearance-none"
+                  >
+                    <option value="ALL">All Genres</option>
+                    {availableGenres.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name === 'Animation' ? '✨ Animation' : g.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 2. Country */}
+                <div className="relative flex items-center col-span-1">
+                  <Globe className="absolute left-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                  <select
+                    id="discover-country-select"
+                    value={selectedCountry}
+                    onChange={(e) => setSelectedCountry(e.target.value)}
+                    className="w-full bg-slate-900 border border-white/10 focus:border-cyan-400/50 rounded-lg pl-7 pr-3 py-1.5 text-xs text-slate-200 outline-none cursor-pointer appearance-none"
+                  >
+                    {POPULAR_COUNTRIES.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.flag} {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 3. Language */}
+                <div className="relative flex items-center col-span-1">
+                  <Languages className="absolute left-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                  <select
+                    id="discover-language-select"
+                    value={selectedLanguage}
+                    onChange={(e) => setSelectedLanguage(e.target.value)}
+                    className="w-full bg-slate-900 border border-white/10 focus:border-cyan-400/50 rounded-lg pl-7 pr-3 py-1.5 text-xs text-slate-200 outline-none cursor-pointer appearance-none"
+                  >
+                    {POPULAR_LANGUAGES.map((l) => (
+                      <option key={l.code} value={l.code}>
+                        {l.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 4. Release Year */}
+                <div className="relative flex items-center col-span-1">
+                  <Calendar className="absolute left-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                  <input
+                    id="discover-year-input"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(e.target.value.replace(/[^0-9]/g, ''))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleDiscover();
+                    }}
+                    placeholder="Year (e.g. 2024)"
+                    className="w-full bg-slate-900 border border-white/10 focus:border-cyan-400/50 rounded-lg pl-7 pr-2 py-1.5 text-xs text-slate-200 placeholder-slate-500 outline-none"
+                  />
+                </div>
+
+                {/* 5. Action Buttons (Discover & Reset) */}
+                <div className="flex items-center gap-1.5 col-span-2 sm:col-span-4 md:col-span-1">
+                  <button
+                    id="discover-submit-btn"
+                    type="button"
+                    onClick={() => handleDiscover()}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs transition-all cursor-pointer shadow-sm active:scale-95"
+                  >
+                    <Compass className="w-3.5 h-3.5" />
+                    <span>Discover</span>
+                  </button>
+
+                  {hasAnyFilterActive && (
+                    <button
+                      id="discover-reset-btn"
+                      type="button"
+                      onClick={handleResetFilters}
+                      title="Reset filters"
+                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Quick Category Chips */}
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-0.5">
+                <span className="text-[11px] text-slate-400 font-medium shrink-0 mr-1 flex items-center gap-1">
+                  <Sparkle className="w-3 h-3 text-cyan-400" /> Quick Genres:
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleQuickGenreClick('ALL')}
+                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-medium transition-all cursor-pointer whitespace-nowrap ${
+                    selectedGenreId === 'ALL' && !isDiscoverActive
+                      ? 'bg-slate-200 text-slate-950 font-semibold'
+                      : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-white/5'
+                  }`}
+                >
+                  All
+                </button>
+                {availableGenres.map((genre) => {
+                  const isSelected = selectedGenreId === genre.id;
+                  const isAnimation = genre.name === 'Animation';
+                  return (
+                    <button
+                      key={genre.id}
+                      type="button"
+                      onClick={() => handleQuickGenreClick(genre.id)}
+                      className={`px-2.5 py-0.5 rounded-full text-[11px] font-medium transition-all cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                        isSelected
+                          ? 'bg-cyan-500 text-slate-950 font-semibold shadow-sm'
+                          : isAnimation
+                          ? 'bg-pink-500/10 text-pink-300 hover:bg-pink-500/20 border border-pink-500/20'
+                          : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-white/5'
+                      }`}
+                    >
+                      {isAnimation && <Sparkles className="w-2.5 h-2.5 text-pink-300" />}
+                      <span>{genre.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Sub-Filters / Movies Tabs */}
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            {isDiscoverActive ? (
+              <div className="flex items-center gap-2 text-cyan-300 font-medium">
+                <Compass className="w-3.5 h-3.5" />
+                <span>Filtered Results ({displayItems.length} found)</span>
+                {selectedYear && (
+                  <span className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-slate-300 text-[10px]">
+                    Year: {selectedYear}
+                  </span>
+                )}
+                {selectedCountry && (
+                  <span className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-slate-300 text-[10px]">
+                    {selectedCountry}
+                  </span>
+                )}
+              </div>
+            ) : query.trim() ? (
+              <div className="flex items-center gap-1.5 text-slate-300">
+                <Search className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Results for "{query}"</span>
+              </div>
+            ) : activeMode === 'movies' ? (
+              <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+                <button
+                  onClick={() => {
+                    setActiveCategory('trending');
+                    sound.playOkClick();
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                    activeCategory === 'trending'
+                      ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40 shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                  }`}
+                >
+                  <Flame className="w-3 h-3 text-orange-400" /> Trending
+                </button>
                 <button
                   onClick={() => {
                     setActiveCategory('all');
                     sound.playOkClick();
                   }}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold font-montserrat flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
                     activeCategory === 'all'
-                      ? 'bg-gradient-to-r from-red-600 to-amber-600 text-white shadow-md'
-                      : 'bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white border border-white/10'
+                      ? 'bg-slate-800 text-white border border-white/15'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
                   }`}
                 >
-                  <InfinityIcon className="w-3.5 h-3.5" /> Infinite Discovery
+                  <InfinityIcon className="w-3 h-3 text-cyan-400" /> All Catalog
                 </button>
                 <button
                   onClick={() => {
                     setActiveCategory('top100');
                     sound.playOkClick();
                   }}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold font-montserrat flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
                     activeCategory === 'top100'
-                      ? 'bg-cyan-600 text-white shadow-md'
-                      : 'bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white border border-white/10'
+                      ? 'bg-slate-800 text-white border border-white/15'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
                   }`}
                 >
-                  <Sparkles className="w-3 h-3" /> Top 100 ({loadedMovies.length})
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveCategory('trending');
-                    sound.playOkClick();
-                  }}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold font-montserrat flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
-                    activeCategory === 'trending'
-                      ? 'bg-orange-600 text-white shadow-md'
-                      : 'bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white border border-white/10'
-                  }`}
-                >
-                  <Flame className="w-3 h-3" /> Trending
+                  <Sparkles className="w-3 h-3 text-yellow-400" /> Top 100
                 </button>
                 <button
                   onClick={() => {
                     setActiveCategory('popular');
                     sound.playOkClick();
                   }}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold font-montserrat flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
                     activeCategory === 'popular'
-                      ? 'bg-purple-600 text-white shadow-md'
-                      : 'bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white border border-white/10'
+                      ? 'bg-slate-800 text-white border border-white/15'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
                   }`}
                 >
-                  <TrendingUp className="w-3 h-3" /> Popular
+                  <TrendingUp className="w-3 h-3 text-emerald-400" /> Popular
                 </button>
                 <button
                   onClick={() => {
                     setActiveCategory('top_rated');
                     sound.playOkClick();
                   }}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold font-montserrat flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
                     activeCategory === 'top_rated'
-                      ? 'bg-emerald-600 text-white shadow-md'
-                      : 'bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white border border-white/10'
+                      ? 'bg-slate-800 text-white border border-white/15'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
                   }`}
                 >
-                  <Award className="w-3 h-3" /> Top Rated
+                  <Award className="w-3 h-3 text-amber-400" /> Top Rated
                 </button>
               </div>
             ) : (
-              <div className="flex items-center gap-2 text-xs font-montserrat text-cyan-300 font-bold">
-                {query.trim() ? (
-                  <>
-                    <Search className="w-3.5 h-3.5" />
-                    <span>Search results for "{query}"</span>
-                  </>
-                ) : (
-                  <>
-                    <InfinityIcon className="w-3.5 h-3.5" />
-                    <span>
-                      {activeMode === 'tv'
-                        ? 'Top 100 TV Series Catalog'
-                        : 'Top 100 Japanese Anime Catalog'}
-                    </span>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Genre Pills for Movies/TV/Anime */}
-            {genres.length > 0 && (
-              <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
-                {genres.map((genre) => (
-                  <button
-                    key={genre}
-                    onClick={() => setSelectedGenre(genre)}
-                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold font-montserrat tracking-wider uppercase transition-all cursor-pointer whitespace-nowrap ${
-                      selectedGenre === genre
-                        ? 'bg-white text-black font-black shadow-md'
-                        : 'bg-white/5 hover:bg-white/15 text-neutral-400 hover:text-neutral-200 border border-white/5'
-                    }`}
-                  >
-                    {genre}
-                  </button>
-                ))}
+              <div className="flex items-center gap-1.5 text-slate-400 font-medium text-xs">
+                <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                <span>
+                  {activeMode === 'tv'
+                    ? 'Worldwide Popular Series'
+                    : 'Top Japanese Anime Series & Movies'}
+                </span>
               </div>
             )}
           </div>
@@ -677,131 +950,109 @@ export const SearchModal: React.FC<SearchModalProps> = ({
         {/* Scrollable Results Area */}
         <div
           ref={scrollContainerRef}
-          className="flex-1 overflow-y-auto p-3.5 sm:p-5 custom-scrollbar min-h-[340px]"
+          className="flex-1 overflow-y-auto px-3 py-3 sm:px-6 sm:py-5 custom-scrollbar"
         >
-          {/* MOVIES / TV / ANIME POSTERS GRID */}
-          <div>
-            {displayItems.length === 0 && !isCurrentlyLoading ? (
-              <div className="flex flex-col items-center justify-center py-20 text-center">
-                <Compass className="w-12 h-12 text-neutral-600 mb-3" />
-                <p className="text-sm font-bold text-neutral-300 uppercase tracking-wider font-montserrat">
-                  {query.trim() ? `No results found for "${query}"` : 'No titles found in this category'}
-                </p>
-                <p className="text-xs text-neutral-500 mt-1 max-w-sm">
-                  Try checking the spelling or selecting another category/genre filter.
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
-                {displayItems.map((item, idx) => {
-                  const isCurrent =
-                    item.id === currentMovieId ||
-                    (item.tmdbId && item.tmdbId === Number(currentMovieId?.replace(/^(tmdb-|tv-|anime-)/, '')));
-
-                  return (
-                    <div
-                      key={`${item.id}-${idx}`}
-                      onClick={() => handleItemPick(item)}
-                      className={`group relative flex flex-col rounded-xl overflow-hidden bg-neutral-900/70 border transition-all duration-200 cursor-pointer hover:scale-[1.03] active:scale-95 ${
-                        isCurrent
-                          ? 'border-cyan-400 ring-2 ring-cyan-400/40 shadow-[0_0_24px_rgba(6,182,212,0.45)]'
-                          : 'border-white/10 hover:border-white/40 hover:shadow-[0_10px_30px_rgba(0,0,0,0.85)]'
-                      }`}
-                    >
-                      {/* Poster Image */}
-                      <div className="relative aspect-[2/3] w-full bg-neutral-950 overflow-hidden">
-                        <img
-                          src={item.heroImageUrl || item.bgImageUrl}
-                          alt={item.title}
-                          loading="lazy"
-                          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                        />
-
-                        {/* Top Rating */}
-                        <div className="absolute top-1.5 right-1.5 flex items-center gap-1 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded text-[10px] font-bold text-yellow-400 border border-yellow-500/30">
-                          <Star className="w-2.5 h-2.5 fill-yellow-400" />
-                          <span>{item.voteAverage || '8.0'}</span>
-                        </div>
-
-                        {/* Release Year / Badge */}
-                        <div className="absolute top-1.5 left-1.5 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] font-bold text-neutral-300 border border-white/10 flex items-center gap-1">
-                          {item.mediaType === 'tv' && <Tv className="w-2.5 h-2.5 text-cyan-400" />}
-                          {item.mediaType === 'anime' && <Sparkles className="w-2.5 h-2.5 text-pink-400" />}
-                          <span>{item.year}</span>
-                        </div>
-
-                        {/* Play overlay on hover */}
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                          <div className="w-10 h-10 rounded-full bg-red-600/90 text-white flex items-center justify-center shadow-lg transform scale-75 group-hover:scale-100 transition-transform">
-                            <Play className="w-5 h-5 fill-current ml-0.5" />
-                          </div>
-                        </div>
-
-                        {/* Active Selection Overlay */}
-                        {isCurrent && (
-                          <div className="absolute inset-0 bg-cyan-950/40 backdrop-blur-[1px] flex items-center justify-center">
-                            <div className="flex items-center gap-1 bg-cyan-500 text-black px-2 py-0.5 rounded-full text-[9px] font-black tracking-wider uppercase shadow-lg">
-                              <CheckCircle2 className="w-3 h-3" /> ACTIVE
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Card Metadata */}
-                      <div className="p-2 sm:p-2.5 flex flex-col flex-1 justify-between bg-black/60">
-                        <h3 className="font-montserrat font-black text-xs text-neutral-100 group-hover:text-cyan-300 line-clamp-1 uppercase tracking-tight">
-                          {item.title}
-                        </h3>
-                        <p className="text-[10px] text-neutral-400 line-clamp-1 mt-0.5">
-                          {item.genres.slice(0, 2).join(' • ')}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Infinite Scroll Sentinel & Infinity Loader */}
-            <div ref={sentinelRef} className="w-full py-8 flex flex-col items-center justify-center">
-              {isCurrentlyLoading ? (
-                <div className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-black/50 border border-white/10 backdrop-blur-md">
-                  <div className="relative flex items-center justify-center">
-                    <div className="w-10 h-10 rounded-full border-2 border-cyan-400/30 border-t-cyan-400 animate-spin"></div>
-                    <InfinityIcon className="w-4 h-4 text-cyan-300 absolute animate-pulse" />
-                  </div>
-                  <div className="flex flex-col items-center text-center">
-                    <span className="text-xs font-black tracking-widest uppercase font-montserrat text-cyan-300 flex items-center gap-1.5">
-                      <Sparkles className="w-3 h-3" /> INFINITY LOADER
-                    </span>
-                    <span className="text-[11px] text-neutral-400 font-montserrat mt-0.5">
-                      Loading more titles from worldwide catalog...
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-xs text-neutral-500 font-montserrat flex items-center gap-1.5">
-                  <InfinityIcon className="w-4 h-4 text-neutral-600 animate-pulse" />
-                  <span>Scroll down for more catalog entries</span>
-                </div>
+          {displayItems.length === 0 && !isCurrentlyLoading ? (
+            <div className="flex flex-col items-center justify-center py-24 text-center">
+              <Compass className="w-10 h-10 text-slate-600 mb-3" />
+              <p className="text-sm font-semibold text-slate-300">
+                {query.trim()
+                  ? `No titles found for "${query}"`
+                  : isDiscoverActive
+                  ? 'No titles found matching this filter'
+                  : 'No titles available in this category'}
+              </p>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm">
+                Try selecting different genres, year, or language parameters.
+              </p>
+              {hasAnyFilterActive && (
+                <button
+                  onClick={handleResetFilters}
+                  className="mt-4 px-4 py-1.5 bg-slate-800 hover:bg-slate-700 border border-white/10 rounded-lg text-xs font-medium text-slate-200 transition-colors cursor-pointer"
+                >
+                  Clear All Filters
+                </button>
               )}
             </div>
-          </div>
-        </div>
+          ) : (
+            <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-2.5 sm:gap-3.5 lg:gap-4">
+              {displayItems.map((item, idx) => {
+                const isCurrent =
+                  item.id === currentMovieId ||
+                  (item.tmdbId && item.tmdbId === Number(currentMovieId?.replace(/^(tmdb-|tv-|anime-)/, '')));
 
-        {/* Footer Info */}
-        <div className="p-3 bg-black/90 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-[11px] text-neutral-400 font-montserrat">
-          <div className="flex items-center gap-2">
-            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span className="text-neutral-300 font-semibold">
-              {activeMode.toUpperCase()} STREAM ({displayItems.length} titles loaded)
-            </span>
-          </div>
-          <div className="flex items-center gap-3 text-neutral-400">
-            <span>Click any title to project poster on Home Screen</span>
-            <span className="hidden sm:inline">
-              Press <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-[10px]">Esc</kbd> to close
-            </span>
+                return (
+                  <div
+                    key={`${item.id}-${idx}`}
+                    onClick={() => handleItemPick(item)}
+                    className={`group relative flex flex-col rounded-xl overflow-hidden bg-slate-900/60 border transition-all duration-200 cursor-pointer hover:-translate-y-1 hover:shadow-xl ${
+                      isCurrent
+                        ? 'border-cyan-400 ring-2 ring-cyan-400/30 shadow-[0_0_20px_rgba(6,182,212,0.35)]'
+                        : 'border-white/5 hover:border-white/20'
+                    }`}
+                  >
+                    {/* Poster Image */}
+                    <div className="relative aspect-[2/3] w-full bg-slate-950 overflow-hidden">
+                      <img
+                        src={item.heroImageUrl || item.bgImageUrl}
+                        alt={item.title}
+                        loading="lazy"
+                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      />
+
+                      {/* Top Right Rating Badge */}
+                      <div className="absolute top-1.5 right-1.5 flex items-center gap-1 bg-slate-950/70 backdrop-blur-md px-1.5 py-0.5 rounded text-[10px] font-medium text-amber-300 border border-white/10">
+                        <Star className="w-2.5 h-2.5 fill-amber-300 text-amber-300" />
+                        <span>{item.voteAverage || '8.0'}</span>
+                      </div>
+
+                      {/* Top Left Format / Year Badge */}
+                      <div className="absolute top-1.5 left-1.5 bg-slate-950/70 backdrop-blur-md px-1.5 py-0.5 rounded text-[10px] font-medium text-slate-300 border border-white/10 flex items-center gap-1">
+                        {item.mediaType === 'tv' && <Tv className="w-2.5 h-2.5 text-cyan-400" />}
+                        {item.mediaType === 'anime' && <Sparkles className="w-2.5 h-2.5 text-pink-400" />}
+                        <span>{item.year}</span>
+                      </div>
+
+                      {/* Play Hover Overlay */}
+                      <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <div className="w-8 h-8 rounded-full bg-cyan-500 text-slate-950 flex items-center justify-center shadow-lg transform scale-80 group-hover:scale-100 transition-transform">
+                          <Play className="w-4 h-4 fill-current ml-0.5" />
+                        </div>
+                      </div>
+
+                      {/* Active Indicator */}
+                      {isCurrent && (
+                        <div className="absolute inset-0 bg-cyan-950/30 backdrop-blur-[1px] flex items-center justify-center">
+                          <div className="flex items-center gap-1 bg-cyan-500 text-slate-950 px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wide uppercase shadow-md">
+                            <CheckCircle2 className="w-3 h-3" /> Selected
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Card Title & Subtitle */}
+                    <div className="p-2 sm:p-2.5 flex flex-col flex-1 justify-between bg-slate-900/90">
+                      <h3 className="font-semibold text-xs text-slate-100 group-hover:text-cyan-300 line-clamp-1">
+                        {item.title}
+                      </h3>
+                      <p className="text-[10px] text-slate-400 line-clamp-1 mt-0.5">
+                        {item.genres.slice(0, 2).join(' • ')}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Sentinel for Infinite Scroll */}
+          <div ref={sentinelRef} className="w-full py-6 flex items-center justify-center">
+            {isCurrentlyLoading && (
+              <div className="flex items-center gap-2 text-xs text-cyan-300">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Loading more titles...</span>
+              </div>
+            )}
           </div>
         </div>
       </div>

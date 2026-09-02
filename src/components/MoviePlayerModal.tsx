@@ -623,7 +623,7 @@ export const MoviePlayerModal: React.FC<MoviePlayerModalProps> = ({
 
       {/* Loading Spinner Overlay */}
       {isLoading && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/95 pointer-events-none">
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/95 pointer-events-none px-4">
           <div className="relative flex items-center justify-center">
             <div
               className="w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 border-t-transparent animate-spin"
@@ -633,9 +633,25 @@ export const MoviePlayerModal: React.FC<MoviePlayerModalProps> = ({
             />
             <Loader2 className="w-7 h-7 text-yellow-400 animate-spin absolute" />
           </div>
-          <p className="mt-4 text-neutral-200 font-montserrat font-semibold text-xs sm:text-sm tracking-wider">
-            Connecting to {currentServer.name}...
+          <p className="mt-4 text-neutral-100 font-montserrat font-bold text-sm sm:text-base tracking-wider text-center">
+            Connecting to {currentServer.name} ({currentServer.badge})...
           </p>
+          <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[11px] sm:text-xs text-neutral-400 font-mono bg-neutral-900/80 px-3.5 py-1.5 rounded-full border border-white/10 shadow-lg">
+            <span>
+              {poster.mediaType === 'anime' && poster.anilistId ? 'AniList ID:' : 'TMDB ID:'}{' '}
+              <strong className="text-yellow-400 font-semibold">{poster.anilistId || poster.tmdbId || poster.id}</strong>
+            </span>
+            <span className="text-white/20">•</span>
+            <span className="text-cyan-400 font-medium">{poster.title}</span>
+            {poster.mediaType !== 'movie' && (
+              <>
+                <span className="text-white/20">•</span>
+                <span className="text-pink-400 font-semibold">
+                  {poster.mediaType === 'tv' ? `S${season} E${episode}` : `Ep ${episode}`}
+                </span>
+              </>
+            )}
+          </div>
         </div>
       )}
 

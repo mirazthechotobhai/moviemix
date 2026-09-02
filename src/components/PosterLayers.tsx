@@ -160,6 +160,7 @@ export const PosterLayers: React.FC<PosterLayersProps> = ({
                 key={`${poster.id}-${activePosterUrl}-${imgIndex}`}
                 src={activePosterUrl}
                 alt={poster.title}
+                crossOrigin="anonymous"
                 referrerPolicy="no-referrer"
                 loading="eager"
                 decoding="async"

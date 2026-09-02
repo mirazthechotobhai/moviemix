@@ -488,7 +488,15 @@ export async function fetchTrendingMoviesPage(page: number): Promise<PosterData[
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-    const url = `https://api.themoviedb.org/3/trending/movie/week?api_key=${TMDB_API_KEY}&page=${page}&language=en-US`;
+    // Dynamic discovery: trending titles first (day & week), followed by popular & high vote counts
+    const endpoints = [
+      `https://api.themoviedb.org/3/trending/movie/day?api_key=${TMDB_API_KEY}&page=${page}&language=en-US`,
+      `https://api.themoviedb.org/3/trending/movie/week?api_key=${TMDB_API_KEY}&page=${page}&language=en-US`,
+      `https://api.themoviedb.org/3/movie/popular?api_key=${TMDB_API_KEY}&page=${page}&language=en-US`,
+      `https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_API_KEY}&page=${page}&sort_by=vote_count.desc&language=en-US`,
+      `https://api.themoviedb.org/3/movie/now_playing?api_key=${TMDB_API_KEY}&page=${page}&language=en-US`,
+    ];
+    const url = endpoints[(page - 1) % endpoints.length];
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timeoutId);
 
@@ -518,17 +526,75 @@ export async function fetchTrendingMoviesPage(page: number): Promise<PosterData[
   }
 }
 
-// Fetch top 100 cinema movies combining latest releases (Now Playing) and trending
+// Fetch historical older movies chronologically (starting from oldest cinema classics e.g. 1920s-1970s up to recent)
+export async function fetchOlderMoviesPage(page: number): Promise<PosterData[]> {
+  try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 7000);
+
+    // Discovers movies ordered by release date ascending with good vote counts (vintage cinema classics)
+    const url = `https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_API_KEY}&page=${page}&sort_by=primary_release_date.asc&vote_count.gte=100&vote_average.gte=6.0&primary_release_date.gte=1920-01-01&language=en-US`;
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(tid);
+
+    if (!res.ok) return [];
+    const data = await res.json();
+    const rawMovies = (data.results || []).filter(
+      (m: any) =>
+        m &&
+        ((typeof m.poster_path === 'string' && m.poster_path.startsWith('/')) ||
+          (typeof m.backdrop_path === 'string' && m.backdrop_path.startsWith('/')))
+    );
+
+    const movies = rawMovies.map((m: any) => transformTmdbMovie(m));
+    preloadPosterImages(movies.slice(0, 4));
+    return movies;
+  } catch (err) {
+    console.error('Error fetching older movies page:', err);
+    return [];
+  }
+}
+
+// Fetch older classic TV shows (starting from oldest 1950s-1990s TV)
+export async function fetchOlderTVShowsPage(page: number): Promise<PosterData[]> {
+  try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 7000);
+
+    const url = `https://api.themoviedb.org/3/discover/tv?api_key=${TMDB_API_KEY}&page=${page}&sort_by=first_air_date.asc&vote_count.gte=30&first_air_date.gte=1960-01-01&language=en-US`;
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(tid);
+
+    if (!res.ok) return [];
+    const data = await res.json();
+    const rawShows = (data.results || []).filter(
+      (m: any) =>
+        m &&
+        ((typeof m.poster_path === 'string' && m.poster_path.startsWith('/')) ||
+          (typeof m.backdrop_path === 'string' && m.backdrop_path.startsWith('/')))
+    );
+
+    const shows = rawShows.map((m: any) => transformTmdbTV(m));
+    preloadPosterImages(shows.slice(0, 4));
+    return shows;
+  } catch (err) {
+    console.error('Error fetching older TV shows page:', err);
+    return [];
+  }
+}
+
+// Fetch top 100 cinema movies with trending titles (day & week) in the first positions
 export async function fetchTop100Movies(): Promise<PosterData[]> {
   try {
     const endpoints = [
+      `https://api.themoviedb.org/3/trending/movie/day?api_key=${TMDB_API_KEY}&page=1&language=en-US`,
       `https://api.themoviedb.org/3/trending/movie/week?api_key=${TMDB_API_KEY}&page=1&language=en-US`,
+      `https://api.themoviedb.org/3/trending/movie/day?api_key=${TMDB_API_KEY}&page=2&language=en-US`,
       `https://api.themoviedb.org/3/trending/movie/week?api_key=${TMDB_API_KEY}&page=2&language=en-US`,
       `https://api.themoviedb.org/3/movie/now_playing?api_key=${TMDB_API_KEY}&page=1&language=en-US`,
+      `https://api.themoviedb.org/3/movie/popular?api_key=${TMDB_API_KEY}&page=1&language=en-US`,
       `https://api.themoviedb.org/3/movie/now_playing?api_key=${TMDB_API_KEY}&page=2&language=en-US`,
       `https://api.themoviedb.org/3/trending/movie/week?api_key=${TMDB_API_KEY}&page=3&language=en-US`,
-      `https://api.themoviedb.org/3/movie/popular?api_key=${TMDB_API_KEY}&page=1&language=en-US`,
-      `https://api.themoviedb.org/3/movie/popular?api_key=${TMDB_API_KEY}&page=2&language=en-US`,
     ];
 
     const responses = await Promise.allSettled(
@@ -671,16 +737,17 @@ export async function fetchInfiniteCatalog(
   }
 }
 
-// TV Shows APIs
+// TV Shows APIs - Trending titles (day & week) in the first positions
 export async function fetchTop100TVShows(): Promise<PosterData[]> {
   try {
     const endpoints = [
+      `https://api.themoviedb.org/3/trending/tv/day?api_key=${TMDB_API_KEY}&page=1&language=en-US`,
       `https://api.themoviedb.org/3/trending/tv/week?api_key=${TMDB_API_KEY}&page=1&language=en-US`,
+      `https://api.themoviedb.org/3/trending/tv/day?api_key=${TMDB_API_KEY}&page=2&language=en-US`,
       `https://api.themoviedb.org/3/trending/tv/week?api_key=${TMDB_API_KEY}&page=2&language=en-US`,
       `https://api.themoviedb.org/3/tv/popular?api_key=${TMDB_API_KEY}&page=1&language=en-US`,
-      `https://api.themoviedb.org/3/tv/popular?api_key=${TMDB_API_KEY}&page=2&language=en-US`,
-      `https://api.themoviedb.org/3/tv/top_rated?api_key=${TMDB_API_KEY}&page=1&language=en-US`,
       `https://api.themoviedb.org/3/tv/on_the_air?api_key=${TMDB_API_KEY}&page=1&language=en-US`,
+      `https://api.themoviedb.org/3/tv/top_rated?api_key=${TMDB_API_KEY}&page=1&language=en-US`,
     ];
 
     const responses = await Promise.allSettled(
@@ -733,8 +800,10 @@ export async function fetchInfiniteTVCatalog(
     const ctrl = new AbortController();
     const tid = setTimeout(() => ctrl.abort(), 7000);
 
-    let url = `https://api.themoviedb.org/3/trending/tv/week?api_key=${TMDB_API_KEY}&page=${page}&language=en-US`;
-    if (category === 'popular') {
+    let url = `https://api.themoviedb.org/3/trending/tv/day?api_key=${TMDB_API_KEY}&page=${page}&language=en-US`;
+    if (category === 'trending') {
+      url = `https://api.themoviedb.org/3/trending/tv/day?api_key=${TMDB_API_KEY}&page=${page}&language=en-US`;
+    } else if (category === 'popular') {
       url = `https://api.themoviedb.org/3/tv/popular?api_key=${TMDB_API_KEY}&page=${page}&language=en-US`;
     } else if (category === 'top_rated') {
       url = `https://api.themoviedb.org/3/tv/top_rated?api_key=${TMDB_API_KEY}&page=${page}&language=en-US`;
@@ -742,6 +811,7 @@ export async function fetchInfiniteTVCatalog(
       url = `https://api.themoviedb.org/3/tv/on_the_air?api_key=${TMDB_API_KEY}&page=${page}&language=en-US`;
     } else if (category === 'all') {
       const endpoints = [
+        `https://api.themoviedb.org/3/trending/tv/day?api_key=${TMDB_API_KEY}&page=${page}&language=en-US`,
         `https://api.themoviedb.org/3/trending/tv/week?api_key=${TMDB_API_KEY}&page=${page}&language=en-US`,
         `https://api.themoviedb.org/3/discover/tv?api_key=${TMDB_API_KEY}&page=${page}&sort_by=popularity.desc&vote_count.gte=50&language=en-US`,
       ];
@@ -952,6 +1022,180 @@ export async function searchTmdbAnimePaged(
 export async function searchTmdbMovies(query: string): Promise<PosterData[]> {
   const res = await searchTmdbMoviesPaged(query, 1);
   return res.movies;
+}
+
+export const MOVIE_GENRES: { id: number; name: string }[] = [
+  { id: 16, name: 'Animation' },
+  { id: 28, name: 'Action' },
+  { id: 12, name: 'Adventure' },
+  { id: 35, name: 'Comedy' },
+  { id: 80, name: 'Crime' },
+  { id: 99, name: 'Documentary' },
+  { id: 18, name: 'Drama' },
+  { id: 10751, name: 'Family' },
+  { id: 14, name: 'Fantasy' },
+  { id: 36, name: 'History' },
+  { id: 27, name: 'Horror' },
+  { id: 10402, name: 'Music' },
+  { id: 9648, name: 'Mystery' },
+  { id: 10749, name: 'Romance' },
+  { id: 878, name: 'Sci-Fi' },
+  { id: 53, name: 'Thriller' },
+  { id: 10752, name: 'War' },
+  { id: 37, name: 'Western' },
+];
+
+export const TV_GENRES: { id: number; name: string }[] = [
+  { id: 16, name: 'Animation' },
+  { id: 10759, name: 'Action & Adventure' },
+  { id: 35, name: 'Comedy' },
+  { id: 80, name: 'Crime' },
+  { id: 99, name: 'Documentary' },
+  { id: 18, name: 'Drama' },
+  { id: 10751, name: 'Family' },
+  { id: 10762, name: 'Kids' },
+  { id: 9648, name: 'Mystery' },
+  { id: 10765, name: 'Sci-Fi & Fantasy' },
+  { id: 10766, name: 'Soap' },
+  { id: 10768, name: 'War & Politics' },
+  { id: 37, name: 'Western' },
+];
+
+export const POPULAR_COUNTRIES: { code: string; name: string; flag: string }[] = [
+  { code: '', name: 'All Countries', flag: '🌐' },
+  { code: 'US', name: 'United States', flag: '🇺🇸' },
+  { code: 'GB', name: 'United Kingdom', flag: '🇬🇧' },
+  { code: 'JP', name: 'Japan', flag: '🇯🇵' },
+  { code: 'KR', name: 'South Korea', flag: '🇰🇷' },
+  { code: 'IN', name: 'India', flag: '🇮🇳' },
+  { code: 'BD', name: 'Bangladesh', flag: '🇧🇩' },
+  { code: 'FR', name: 'France', flag: '🇫🇷' },
+  { code: 'DE', name: 'Germany', flag: '🇩🇪' },
+  { code: 'ES', name: 'Spain', flag: '🇪🇸' },
+  { code: 'IT', name: 'Italy', flag: '🇮🇹' },
+  { code: 'CA', name: 'Canada', flag: '🇨🇦' },
+  { code: 'CN', name: 'China', flag: '🇨🇳' },
+  { code: 'AU', name: 'Australia', flag: '🇦🇺' },
+  { code: 'TH', name: 'Thailand', flag: '🇹🇭' },
+  { code: 'TR', name: 'Turkey', flag: '🇹🇷' },
+  { code: 'BR', name: 'Brazil', flag: '🇧🇷' },
+  { code: 'MX', name: 'Mexico', flag: '🇲🇽' },
+];
+
+export const POPULAR_LANGUAGES: { code: string; name: string }[] = [
+  { code: '', name: 'All Languages' },
+  { code: 'en', name: 'English (EN)' },
+  { code: 'ja', name: 'Japanese (JA)' },
+  { code: 'ko', name: 'Korean (KO)' },
+  { code: 'hi', name: 'Hindi (HI)' },
+  { code: 'bn', name: 'Bengali (BN)' },
+  { code: 'es', name: 'Spanish (ES)' },
+  { code: 'fr', name: 'French (FR)' },
+  { code: 'de', name: 'German (DE)' },
+  { code: 'zh', name: 'Chinese (ZH)' },
+  { code: 'it', name: 'Italian (IT)' },
+  { code: 'th', name: 'Thai (TH)' },
+  { code: 'ru', name: 'Russian (RU)' },
+  { code: 'tr', name: 'Turkish (TR)' },
+  { code: 'ar', name: 'Arabic (AR)' },
+  { code: 'pt', name: 'Portuguese (PT)' },
+];
+
+export interface DiscoverOptions {
+  mediaType?: 'movies' | 'tv' | 'anime';
+  genreId?: number | string;
+  country?: string;
+  language?: string;
+  year?: string | number;
+  page?: number;
+}
+
+export async function discoverTmdbMediaPaged({
+  mediaType = 'movies',
+  genreId,
+  country,
+  language,
+  year,
+  page = 1,
+}: DiscoverOptions): Promise<{ movies: PosterData[]; hasMore: boolean; totalPages: number }> {
+  try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 7000);
+
+    const isTV = mediaType === 'tv';
+    const isAnime = mediaType === 'anime';
+
+    const endpoint = isTV || isAnime
+      ? `https://api.themoviedb.org/3/discover/tv`
+      : `https://api.themoviedb.org/3/discover/movie`;
+
+    const params = new URLSearchParams({
+      api_key: TMDB_API_KEY,
+      page: String(page),
+      sort_by: 'popularity.desc',
+      'vote_count.gte': '5',
+      include_adult: 'false',
+    });
+
+    if (isAnime) {
+      if (genreId && String(genreId) !== 'ALL' && String(genreId) !== '16') {
+        params.set('with_genres', `16,${genreId}`);
+      } else {
+        params.set('with_genres', '16');
+      }
+      if (!language) {
+        params.set('with_original_language', 'ja');
+      }
+    } else if (genreId && String(genreId) !== 'ALL') {
+      params.set('with_genres', String(genreId));
+    }
+
+    if (country) {
+      params.set('with_origin_country', country);
+    }
+
+    if (language) {
+      params.set('with_original_language', language);
+    }
+
+    if (year && String(year).trim()) {
+      const cleanYear = String(year).trim();
+      if (isTV || isAnime) {
+        params.set('first_air_date_year', cleanYear);
+      } else {
+        params.set('primary_release_year', cleanYear);
+      }
+    }
+
+    const url = `${endpoint}?${params.toString()}`;
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(tid);
+
+    if (!res.ok) return { movies: [], hasMore: false, totalPages: 0 };
+    const data = await res.json();
+    const totalPages = data.total_pages || 1;
+    const rawList = (data.results || []).filter(
+      (m: any) =>
+        m &&
+        ((typeof m.poster_path === 'string' && m.poster_path.startsWith('/')) ||
+          (typeof m.backdrop_path === 'string' && m.backdrop_path.startsWith('/')))
+    );
+
+    const transformed = rawList.map((m: any) => {
+      if (isAnime) return transformTmdbAnime(m);
+      if (isTV) return transformTmdbTV(m);
+      return transformTmdbMovie(m);
+    });
+
+    return {
+      movies: transformed,
+      hasMore: page < totalPages,
+      totalPages,
+    };
+  } catch (err) {
+    console.error('Error discovering TMDB media:', err);
+    return { movies: [], hasMore: false, totalPages: 0 };
+  }
 }
 
 // Utility to preload poster images into browser cache

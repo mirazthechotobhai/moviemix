@@ -23,6 +23,8 @@ import {
   fetchTop100Movies,
   fetchTop100TVShows,
   fetchTrendingMoviesPage,
+  fetchOlderMoviesPage,
+  fetchOlderTVShowsPage,
   fetchInfiniteTVCatalog,
   preloadPosterImages,
   fetchMovieDetails,
@@ -30,6 +32,7 @@ import {
 import {
   fetchTop100AniListAnime,
   fetchInfiniteAniListCatalog,
+  fetchOlderAniListAnimePage,
 } from './services/anilist';
 import { FALLBACK_POSTERS } from './data/fallbackPosters';
 import { capturePosterScreenshot, triggerDownload } from './utils/screenshot';
@@ -53,9 +56,15 @@ export default function App() {
   const [tvPage, setTvPage] = useState<number>(1);
   const [animePage, setAnimePage] = useState<number>(1);
 
+  // Separate pages for Next (forward) and Prev (older classic titles)
+  const [oldMoviePage, setOldMoviePage] = useState<number>(1);
+  const [oldTvPage, setOldTvPage] = useState<number>(1);
+  const [oldAnimePage, setOldAnimePage] = useState<number>(1);
+
   // Loading states
   const [isLoadingCategory, setIsLoadingCategory] = useState<boolean>(false);
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
+  const [isLoadingOlder, setIsLoadingOlder] = useState<boolean>(false);
 
   // FX & UI states
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
@@ -318,16 +327,77 @@ export default function App() {
     }, 2000);
   }, [triggerWebShot]);
 
-  // Switch to Previous Poster in active catalog
+  // Loader for older vintage classic titles on previous navigation
+  const loadOlderPage = useCallback(
+    async (nextOlderPageNumber: number) => {
+      if (isLoadingOlder) return;
+      setIsLoadingOlder(true);
+
+      try {
+        if (activeMediaType === 'movies') {
+          const olderBatch = await fetchOlderMoviesPage(nextOlderPageNumber);
+          if (olderBatch.length > 0) {
+            setMoviesCatalog((prev) => {
+              const existingIds = new Set(prev.map((m) => m.tmdbId || m.id));
+              const filtered = olderBatch.filter((m) => !existingIds.has(m.tmdbId || m.id));
+              // Prepend older titles to the front of catalog so going backwards discovers classic cinema
+              return [...filtered, ...prev];
+            });
+            // Adjust current index so user stays looking at their current item or shifts smoothly into the newly prepended list
+            setMovieIndex((prev) => prev + olderBatch.length);
+            setOldMoviePage(nextOlderPageNumber);
+          }
+        } else if (activeMediaType === 'tv') {
+          const olderBatch = await fetchOlderTVShowsPage(nextOlderPageNumber);
+          if (olderBatch.length > 0) {
+            setTvCatalog((prev) => {
+              const existingIds = new Set(prev.map((m) => m.tmdbId || m.id));
+              const filtered = olderBatch.filter((m) => !existingIds.has(m.tmdbId || m.id));
+              return [...filtered, ...prev];
+            });
+            setTvIndex((prev) => prev + olderBatch.length);
+            setOldTvPage(nextOlderPageNumber);
+          }
+        } else if (activeMediaType === 'anime') {
+          const res = await fetchOlderAniListAnimePage(nextOlderPageNumber);
+          if (res.anime.length > 0) {
+            setAnimeCatalog((prev) => {
+              const existingIds = new Set(prev.map((m) => m.anilistId || m.tmdbId || m.id));
+              const filtered = res.anime.filter((m) => !existingIds.has(m.anilistId || m.tmdbId || m.id));
+              return [...filtered, ...prev];
+            });
+            setAnimeIndex((prev) => prev + res.anime.length);
+            setOldAnimePage(nextOlderPageNumber);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch older page:', err);
+      } finally {
+        setIsLoadingOlder(false);
+      }
+    },
+    [activeMediaType, isLoadingOlder]
+  );
+
+  // Switch to Previous Poster in active catalog (discovers older classic titles chronologically)
   const handlePreviousMovie = useCallback(() => {
     if (activeCatalog.length === 0) return;
     setIsShaking(true);
     sound.playOkClick();
 
+    const currentOldPageNum =
+      activeMediaType === 'tv' ? oldTvPage : activeMediaType === 'anime' ? oldAnimePage : oldMoviePage;
+
     setCurrentIndex((prevIndex) => {
       const prev = prevIndex - 1;
-      const targetIndex = prev >= 0 ? prev : activeCatalog.length - 1;
-      const upcoming = [activeCatalog[targetIndex]].filter(Boolean);
+
+      // When reaching or nearing the front of the catalog, fetch older classics and insert them
+      if (prev <= 2) {
+        loadOlderPage(currentOldPageNum + 1);
+      }
+
+      const targetIndex = prev >= 0 ? prev : 0;
+      const upcoming = [activeCatalog[targetIndex], activeCatalog[targetIndex - 1]].filter(Boolean);
       preloadPosterImages(upcoming);
       return targetIndex;
     });
@@ -335,9 +405,9 @@ export default function App() {
     setTimeout(() => {
       setIsShaking(false);
     }, 450);
-  }, [activeCatalog, setCurrentIndex]);
+  }, [activeCatalog, activeMediaType, oldTvPage, oldAnimePage, oldMoviePage, setCurrentIndex, loadOlderPage]);
 
-  // Switch to Next Poster in active catalog
+  // Switch to Next Poster in active catalog (progresses through newer and diverse lower-ranking titles)
   const handleNextMovie = useCallback(() => {
     if (activeCatalog.length === 0) return;
     setIsShaking(true);
@@ -349,16 +419,16 @@ export default function App() {
     setCurrentIndex((prevIndex) => {
       const nextIndex = prevIndex + 1;
 
-      // When approaching the end of current list, proactively fetch the next TMDB page
+      // When approaching the end of current list, proactively fetch the next TMDB page for endless stream
       if (nextIndex >= activeCatalog.length - 4) {
         loadNextPage(currentPageNum + 1);
       }
 
       // Preload next upcoming posters into browser memory for zero-lag display
-      const targetIndex = nextIndex < activeCatalog.length ? nextIndex : 0;
+      const targetIndex = nextIndex < activeCatalog.length ? nextIndex : activeCatalog.length - 1;
       const upcoming = [
         activeCatalog[targetIndex],
-        activeCatalog[(targetIndex + 1) % activeCatalog.length],
+        activeCatalog[targetIndex + 1],
       ].filter(Boolean);
       preloadPosterImages(upcoming);
 
@@ -468,12 +538,17 @@ export default function App() {
     setIsOkPressed(true);
     setTimeout(() => setIsOkPressed(false), 200);
 
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    // Give browser rendering a brief moment to stabilize
+    await new Promise((resolve) => setTimeout(resolve, 80));
 
     try {
       const node = containerRef.current;
-      const width = node.offsetWidth || window.innerWidth;
-      const height = node.offsetHeight || window.innerHeight;
+      const targetElement =
+        (node.querySelector('#poster-full-container') as HTMLElement) ||
+        document.getElementById('poster-full-container') ||
+        node;
+      const width = targetElement.offsetWidth || window.innerWidth;
+      const height = targetElement.offsetHeight || window.innerHeight;
 
       const sanitizedTitle = (currentPoster.title || 'Poster')
         .replace(/[^a-zA-Z0-9_\-\s]/g, '')
@@ -489,14 +564,14 @@ export default function App() {
 
       triggerDownload(dataUrl, filename);
 
-      setScreenshotToast(`Poster Saved! (${width}x${height})`);
+      setScreenshotToast(`Ultra HD Poster Saved to Downloads!`);
       setTimeout(() => {
         setScreenshotToast(null);
-      }, 3500);
+      }, 2200);
     } catch (err) {
       console.error('Screenshot capture error:', err);
       setScreenshotToast('Screenshot generation failed. Please retry.');
-      setTimeout(() => setScreenshotToast(null), 3500);
+      setTimeout(() => setScreenshotToast(null), 3000);
     } finally {
       setIsCapturing(false);
     }
@@ -621,12 +696,13 @@ export default function App() {
         <div className="fixed inset-0 bg-white z-[999] pointer-events-none transition-opacity duration-300 opacity-90 screenshot-exclude" />
       )}
 
-      {/* Floating Screenshot Toast Notification */}
+      {/* Subtle Floating Screenshot Confirmation (File automatically downloads with no popup needed) */}
       {screenshotToast && (
-        <div className="fixed bottom-14 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-900/95 text-white border border-cyan-400/50 shadow-[0_10px_30px_rgba(0,0,0,0.8)] backdrop-blur-md font-montserrat font-bold text-xs tracking-wider uppercase animate-fade-in screenshot-exclude">
-          <div className="w-4 h-4 rounded-full bg-cyan-400/20 flex items-center justify-center text-cyan-400">
-            <Check className="w-3 h-3" />
-          </div>
+        <div
+          id="screenshot-toast"
+          className="fixed bottom-14 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-neutral-900/90 text-white border border-cyan-400/40 shadow-[0_8px_25px_rgba(0,0,0,0.8)] backdrop-blur-md font-montserrat text-xs font-semibold pointer-events-none animate-fade-in screenshot-exclude"
+        >
+          <Check className="w-3.5 h-3.5 text-emerald-400" />
           <span>{screenshotToast}</span>
         </div>
       )}
@@ -641,11 +717,11 @@ export default function App() {
         </div>
       )}
 
-      {/* Bottom Control Bar: Left (Previous), Center (Screenshot), Right (Next), Play Fullscreen, Search Modal Trigger */}
+      {/* Bottom Control Bar: Left (Previous), Center (Play), Right (Next), Screenshot, Search Modal Trigger */}
       <nav
         id="bottom-nav-controls"
         aria-label="Poster Controls"
-        className="fixed bottom-2 sm:bottom-3 left-1/2 -translate-x-1/2 z-50 pointer-events-auto screenshot-exclude flex items-center gap-3 sm:gap-5 bg-black/40 px-3.5 py-1.5 rounded-full border border-white/10 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,0.8)]"
+        className="fixed bottom-2 sm:bottom-3 left-1/2 -translate-x-1/2 z-50 pointer-events-auto screenshot-exclude flex items-center gap-3 sm:gap-4 bg-black/40 px-3.5 py-1.5 rounded-full border border-white/10 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,0.8)]"
       >
         {/* Previous Button */}
         <button
@@ -661,19 +737,17 @@ export default function App() {
           <ChevronLeft className="w-4 h-4 transition-transform duration-200 group-hover:-translate-x-0.5" />
         </button>
 
-        {/* Center Circular 1-Click Screenshot Button */}
+        {/* Center Play Button (Between Previous and Next) */}
         <button
-          id="center-bottom-ok-btn"
+          id="bottom-play-movie-btn"
           onClick={(e) => {
             e.stopPropagation();
-            handleCaptureScreenshot();
+            sound.playOkClick();
+            setIsPlayerOpen(true);
           }}
-          disabled={isCapturing}
-          title="1-Click: Take Instant HD Screenshot & Download (S / C)"
-          aria-label="Take Screenshot"
-          className={`relative group rounded-full w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center bg-black/90 hover:bg-black text-white border-2 backdrop-blur-xl transition-all duration-300 cursor-pointer select-none active:scale-90 ${
-            isOkPressed || isCapturing ? 'scale-90 ring-2 ring-white/50' : 'hover:scale-110'
-          }`}
+          title="Watch / Play Title (Play)"
+          aria-label="Play Title"
+          className="relative group rounded-full w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center bg-black/90 hover:bg-black text-white border-2 backdrop-blur-xl transition-all duration-300 cursor-pointer select-none active:scale-90 hover:scale-105"
           style={{
             borderColor: currentPoster.themeColor?.primary || '#ef4444',
             boxShadow: `0 0 16px ${currentPoster.themeColor?.glow || 'rgba(239,68,68,0.5)'}, 0 2px 10px rgba(0,0,0,0.9)`,
@@ -683,8 +757,8 @@ export default function App() {
             className="absolute inset-0 rounded-full opacity-60 group-hover:opacity-100 transition-opacity duration-300 blur-[3px] pointer-events-none -z-10"
             style={{ backgroundColor: currentPoster.themeColor?.glow || 'rgba(239,68,68,0.5)' }}
           />
-          <Camera
-            className="w-4 h-4 sm:w-5 sm:h-5 transition-transform duration-300 group-hover:scale-110"
+          <Play
+            className="w-4 h-4 sm:w-4.5 sm:h-4.5 fill-current ml-0.5 transition-transform duration-300 group-hover:scale-110"
             style={{ color: currentPoster.themeColor?.accent || '#ffffff' }}
           />
         </button>
@@ -703,19 +777,21 @@ export default function App() {
           <ChevronRight className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-0.5" />
         </button>
 
-        {/* Play Fullscreen Player Button */}
+        {/* Screenshot Button (Before Search Icon) */}
         <button
-          id="bottom-play-movie-btn"
+          id="center-bottom-ok-btn"
           onClick={(e) => {
             e.stopPropagation();
-            sound.playOkClick();
-            setIsPlayerOpen(true);
+            handleCaptureScreenshot();
           }}
-          title="Watch Fullscreen (Play)"
-          aria-label="Play Title"
-          className="group flex items-center justify-center w-8 h-8 rounded-full bg-white/5 hover:bg-red-500/20 text-neutral-300 hover:text-red-400 border border-white/10 hover:border-red-500/40 transition-all duration-200 cursor-pointer active:scale-90 shadow-[0_0_10px_rgba(239,68,68,0.2)]"
+          disabled={isCapturing}
+          title="1-Click: Take Instant HD Screenshot (S / C)"
+          aria-label="Take Screenshot"
+          className={`group flex items-center justify-center w-8 h-8 rounded-full bg-white/5 hover:bg-white/15 text-neutral-300 hover:text-white border border-white/10 hover:border-white/30 transition-all duration-200 cursor-pointer active:scale-90 ${
+            isOkPressed || isCapturing ? 'scale-90 ring-2 ring-white/50 text-cyan-300' : ''
+          }`}
         >
-          <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+          <Camera className="w-3.5 h-3.5 transition-transform duration-200 group-hover:scale-110" />
         </button>
 
         {/* Search Popup Button */}

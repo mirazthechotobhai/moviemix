@@ -224,7 +224,7 @@ export async function fetchTop100AniListAnime(): Promise<PosterData[]> {
           variables: {
             page,
             perPage: 50,
-            sort: ['POPULARITY_DESC', 'SCORE_DESC'],
+            sort: ['TRENDING_DESC', 'POPULARITY_DESC', 'SCORE_DESC'],
           },
         }),
       });
@@ -251,7 +251,7 @@ export async function fetchTop100AniListAnime(): Promise<PosterData[]> {
 // Infinite Catalog loader from AniList
 export async function fetchInfiniteAniListCatalog(
   page: number = 1,
-  sort: string[] = ['POPULARITY_DESC']
+  sort: string[] = ['TRENDING_DESC', 'POPULARITY_DESC']
 ): Promise<{ anime: PosterData[]; hasMore: boolean }> {
   try {
     const response = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
@@ -286,6 +286,13 @@ export async function fetchInfiniteAniListCatalog(
     console.error('Failed to load AniList infinite catalog:', error);
     return { anime: [], hasMore: false };
   }
+}
+
+// Fetch classic vintage older Anime (starting from oldest 1960s-1990s anime)
+export async function fetchOlderAniListAnimePage(
+  page: number = 1
+): Promise<{ anime: PosterData[]; hasMore: boolean }> {
+  return fetchInfiniteAniListCatalog(page, ['START_DATE', 'POPULARITY_DESC']);
 }
 
 // Search Anime via AniList GraphQL API
