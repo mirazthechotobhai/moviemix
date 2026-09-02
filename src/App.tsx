@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Film, Loader2, RefreshCw, Check, Camera, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { Film, Loader2, RefreshCw, Check, Camera, ChevronLeft, ChevronRight, Search, Play } from 'lucide-react';
 import { PosterData, WebShot, ParallaxState } from './types';
 import { PosterLayers } from './components/PosterLayers';
 import { SpiderWebCanvas } from './components/SpiderWebCanvas';
 import { SearchModal } from './components/SearchModal';
+import { MoviePlayerModal } from './components/MoviePlayerModal';
 import { sound } from './utils/audio';
 import { fetchTop100Movies, fetchTrendingMoviesPage, preloadPosterImages, fetchMovieDetails } from './services/tmdb';
 import { FALLBACK_POSTERS } from './data/fallbackPosters';
@@ -23,6 +24,7 @@ export default function App() {
   const [screenshotToast, setScreenshotToast] = useState<string | null>(null);
   const [isOkPressed, setIsOkPressed] = useState<boolean>(false);
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
+  const [isPlayerOpen, setIsPlayerOpen] = useState<boolean>(false);
 
   // Fetch initial 100 TMDB latest release & trending movies on mount
   useEffect(() => {
@@ -526,6 +528,21 @@ export default function App() {
           <ChevronRight className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-0.5" />
         </button>
 
+        {/* Play Movie Fullscreen Player Button (Placed before Search icon) */}
+        <button
+          id="bottom-play-movie-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            sound.playOkClick();
+            setIsPlayerOpen(true);
+          }}
+          title="Watch Fullscreen Movie (Play)"
+          aria-label="Play Movie"
+          className="group flex items-center justify-center w-8 h-8 rounded-full bg-white/5 hover:bg-red-500/20 text-neutral-300 hover:text-red-400 border border-white/10 hover:border-red-500/40 transition-all duration-200 cursor-pointer active:scale-90 shadow-[0_0_10px_rgba(239,68,68,0.2)]"
+        >
+          <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+        </button>
+
         {/* Search Popup Button */}
         <button
           id="bottom-search-trigger-btn"
@@ -541,6 +558,13 @@ export default function App() {
           <Search className="w-3.5 h-3.5" />
         </button>
       </div>
+
+      {/* CinemaOS Fullscreen Movie Player Modal */}
+      <MoviePlayerModal
+        isOpen={isPlayerOpen}
+        onClose={() => setIsPlayerOpen(false)}
+        poster={currentPoster}
+      />
 
       {/* Worldwide TMDB Search & 100 Movies Explorer Popup Modal */}
       <SearchModal
