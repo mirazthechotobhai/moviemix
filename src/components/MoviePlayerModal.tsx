@@ -633,12 +633,9 @@ export const MoviePlayerModal: React.FC<MoviePlayerModalProps> = ({
             />
             <Loader2 className="w-7 h-7 text-yellow-400 animate-spin absolute" />
           </div>
-          <p className="mt-4 text-neutral-200 font-montserrat font-semibold text-xs sm:text-sm tracking-wider uppercase">
-            Connecting to {currentServer.name} ({currentServer.badge})...
+          <p className="mt-4 text-neutral-200 font-montserrat font-semibold text-xs sm:text-sm tracking-wider">
+            Connecting to {currentServer.name}...
           </p>
-          <span className="text-[10px] text-neutral-500 font-mono mt-1 max-w-[90vw] truncate">
-            {playerUrl}
-          </span>
         </div>
       )}
 
