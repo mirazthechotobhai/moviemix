@@ -7,11 +7,85 @@ import {
   Sparkles,
   ChevronUp,
   ChevronDown,
-  ExternalLink,
+  Check,
 } from 'lucide-react';
 import { PosterData } from '../types';
 import { sound } from '../utils/audio';
 import { fetchTVDetails } from '../services/tmdb';
+
+export interface PlayerServer {
+  id: string;
+  name: string;
+  badge: string;
+  getTvUrl: (id: string | number, season: number, episode: number) => string;
+  getMovieUrl: (id: string | number) => string;
+}
+
+export const TV_PLAYER_SERVERS: PlayerServer[] = [
+  {
+    id: 'cinemaos',
+    name: 'Player 1',
+    badge: 'CinemaOS',
+    getTvUrl: (id, s, e) => `https://cinemaos.tech/player/${id}/${s}/${e}`,
+    getMovieUrl: (id) => `https://cinemaos.in/movie/watch/${id}`,
+  },
+  {
+    id: 'peachify',
+    name: 'Player 2',
+    badge: 'Peachify',
+    getTvUrl: (id, s, e) => `https://peachify.top/embed/tv/${id}/${s}/${e}`,
+    getMovieUrl: (id) => `https://peachify.top/embed/movie/${id}`,
+  },
+  {
+    id: 'boredflix',
+    name: 'Player 3',
+    badge: 'BoredFlix',
+    getTvUrl: (id, s, e) => `https://boredflix.cc/tv/${id}/${s}/${e}`,
+    getMovieUrl: (id) => `https://boredflix.cc/movie/${id}`,
+  },
+  {
+    id: 'vidrock',
+    name: 'Player 4',
+    badge: 'Vidrock',
+    getTvUrl: (id, s, e) => `https://vidrock.ru/tv/${id}/${s}/${e}`,
+    getMovieUrl: (id) => `https://vidrock.ru/movie/${id}`,
+  },
+  {
+    id: 'vidgod',
+    name: 'Player 5',
+    badge: 'Vidgod',
+    getTvUrl: (id, s, e) => `https://vidgod.site/tv/${id}/${s}/${e}`,
+    getMovieUrl: (id) => `https://vidgod.site/movie/${id}`,
+  },
+  {
+    id: 'vidspark',
+    name: 'Player 6',
+    badge: 'Vidspark',
+    getTvUrl: (id, s, e) => `https://vidspark.to/tv/${id}/${s}/${e}`,
+    getMovieUrl: (id) => `https://vidspark.to/movie/${id}`,
+  },
+  {
+    id: 'embedmaster',
+    name: 'Player 7',
+    badge: 'EmbedMaster',
+    getTvUrl: (id, s, e) => `https://embedmaster.link/tv/${id}/${s}/${e}`,
+    getMovieUrl: (id) => `https://embedmaster.link/movie/${id}`,
+  },
+  {
+    id: 'vidrift',
+    name: 'Player 8',
+    badge: 'Vidrift',
+    getTvUrl: (id, s, e) => `https://embed.vidrift.in/embed/tv/${id}/${s}/${e}`,
+    getMovieUrl: (id) => `https://embed.vidrift.in/embed/movie/${id}`,
+  },
+  {
+    id: 'vidsrc',
+    name: 'Player 9',
+    badge: 'VidSrc',
+    getTvUrl: (id, s, e) => `https://vidsrc.sbs/embed/tv/${id}/${s}/${e}`,
+    getMovieUrl: (id) => `https://vidsrc.sbs/embed/movie/${id}`,
+  },
+];
 
 interface MoviePlayerModalProps {
   isOpen: boolean;
@@ -25,6 +99,9 @@ export const MoviePlayerModal: React.FC<MoviePlayerModalProps> = ({
   poster,
 }) => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [selectedServerIndex, setSelectedServerIndex] = useState<number>(0);
+  const [isServerMenuOpen, setIsServerMenuOpen] = useState<boolean>(false);
+  const serverMenuRef = useRef<HTMLDivElement>(null);
 
   // Active playing Season & Episode
   const [season, setSeason] = useState<number>(1);
@@ -48,6 +125,8 @@ export const MoviePlayerModal: React.FC<MoviePlayerModalProps> = ({
     setSeasonInput('1');
     setEpisodeInput('1');
     setIsLoading(true);
+    setIsServerMenuOpen(false);
+    setSelectedServerIndex(0); // Default to Player 1 (user can switch manually)
 
     if (poster.mediaType === 'tv' && poster.tmdbId) {
       fetchTVDetails(poster.tmdbId).then((details) => {
@@ -70,6 +149,24 @@ export const MoviePlayerModal: React.FC<MoviePlayerModalProps> = ({
     }
   }, [poster.id, poster.tmdbId, poster.anilistId, poster.mediaType, poster.totalEpisodes, poster.totalSeasons]);
 
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        serverMenuRef.current &&
+        !serverMenuRef.current.contains(event.target as Node)
+      ) {
+        setIsServerMenuOpen(false);
+      }
+    };
+    if (isServerMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isServerMenuOpen]);
+
   // Update episode max when season changes for TV shows
   useEffect(() => {
     if (poster.mediaType === 'tv') {
@@ -84,28 +181,30 @@ export const MoviePlayerModal: React.FC<MoviePlayerModalProps> = ({
     Number(poster.id.replace(/^(tmdb-|tv-|anime-|anilist-)/, '')) ||
     42013;
 
-  // Determine exact CinemaOS player URL
+  // Determine active server config
+  const currentServer = TV_PLAYER_SERVERS[selectedServerIndex] || TV_PLAYER_SERVERS[0];
+
+  // Determine exact player URL
   const playerUrl = useMemo(() => {
     if (poster.mediaType === 'anime') {
       // If anilistId is present, use animeplayer: https://cinemaos.live/animeplayer/watch/{id}/{e}
       if (poster.anilistId) {
         return `https://cinemaos.live/animeplayer/watch/${poster.anilistId}/${episode}`;
       }
-      // If from TMDB, use CinemaOS TV endpoint with season & episode
+      // If from TMDB, use selected server TV endpoint with season & episode
       const tvId = poster.tmdbId || rawId;
-      return `https://cinemaos.in/tv/watch/${tvId}?s=${season}&e=${episode}`;
+      return currentServer.getTvUrl(tvId, season, episode);
     }
 
     if (poster.mediaType === 'tv') {
-      // TV Show player: https://cinemaos.tech/player/{id}/{s}/{e}
       const tvId = poster.tmdbId || rawId;
-      return `https://cinemaos.tech/player/${tvId}/${season}/${episode}`;
+      return currentServer.getTvUrl(tvId, season, episode);
     }
 
-    // Movie player: https://cinemaos.in/movie/watch/{id}
+    // Movie player
     const movieId = poster.tmdbId || rawId;
-    return `https://cinemaos.in/movie/watch/${movieId}`;
-  }, [poster, rawId, season, episode]);
+    return currentServer.getMovieUrl(movieId);
+  }, [poster, rawId, season, episode, currentServer]);
 
   // Handle Play Button click from input boxes (applies season & episode to player)
   const handleApplySeasonEpisode = (customSeason?: number, customEpisode?: number) => {
@@ -192,18 +291,92 @@ export const MoviePlayerModal: React.FC<MoviePlayerModalProps> = ({
         id="player-top-header"
         className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-3 sm:px-5 py-2.5 bg-gradient-to-b from-black/95 via-black/80 to-transparent pointer-events-none border-b border-white/5 backdrop-blur-md"
       >
-        {/* Left: Title & Media Badge */}
-        <div className="flex items-center gap-2 sm:gap-2.5 pointer-events-auto min-w-0 max-w-[28%] sm:max-w-[32%] shrink-0">
-          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-yellow-500/20 border border-yellow-400/40 flex items-center justify-center text-yellow-400 shadow-[0_0_10px_rgba(234,179,8,0.4)] shrink-0">
-            {poster.mediaType === 'anime' ? (
-              <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-pink-400" />
-            ) : poster.mediaType === 'tv' ? (
-              <Tv className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-cyan-400" />
-            ) : (
-              <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-current ml-0.5" />
+        {/* Left: Title & Media Badge / Clickable Yellow TV Icon Server Switcher */}
+        <div className="flex items-center gap-2 sm:gap-2.5 pointer-events-auto min-w-0 md:max-w-[36%] shrink-0">
+          {/* Yellow TV Icon / Media Badge */}
+          <div className="relative" ref={serverMenuRef}>
+            <button
+              id="player-server-selector-btn"
+              type="button"
+              onClick={() => {
+                sound.playOkClick();
+                setIsServerMenuOpen((prev) => !prev);
+              }}
+              title="Click to Switch Player (Player 1 - Player 9)"
+              aria-label="Switch Player Server"
+              className="relative group flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-yellow-500/20 hover:bg-yellow-500/35 border border-yellow-400/50 hover:border-yellow-300 text-yellow-400 shadow-[0_0_12px_rgba(234,179,8,0.4)] cursor-pointer transition-all duration-200 active:scale-95 shrink-0"
+            >
+              {poster.mediaType === 'anime' ? (
+                <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-pink-400 group-hover:scale-110 transition-transform" />
+              ) : poster.mediaType === 'tv' ? (
+                <Tv className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400 group-hover:scale-110 transition-transform" />
+              ) : (
+                <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-current ml-0.5 text-yellow-400 group-hover:scale-110 transition-transform" />
+              )}
+            </button>
+
+            {/* Server Selection Dropdown Menu */}
+            {isServerMenuOpen && (
+              <div
+                id="player-servers-dropdown"
+                className="absolute left-0 top-full mt-2.5 w-52 sm:w-60 bg-neutral-950/95 border border-yellow-500/40 rounded-xl shadow-[0_15px_35px_rgba(0,0,0,0.95),0_0_20px_rgba(234,179,8,0.25)] backdrop-blur-2xl p-1.5 z-50 animate-fade-in"
+              >
+                <div className="px-2.5 py-1.5 border-b border-white/10 flex items-center justify-between text-[10px] font-montserrat font-bold text-neutral-400">
+                  <span className="tracking-wider">SELECT PLAYER</span>
+                  <span className="text-yellow-400 font-mono">
+                    {TV_PLAYER_SERVERS.length} SERVERS
+                  </span>
+                </div>
+                <div className="max-h-64 overflow-y-auto custom-scrollbar flex flex-col gap-1 py-1.5">
+                  {TV_PLAYER_SERVERS.map((srv, idx) => {
+                    const isSelected = selectedServerIndex === idx;
+                    return (
+                      <button
+                        key={srv.id}
+                        id={`select-player-server-${idx + 1}`}
+                        type="button"
+                        onClick={() => {
+                          sound.playOkClick();
+                          setSelectedServerIndex(idx);
+                          setIsServerMenuOpen(false);
+                          setIsLoading(true);
+                        }}
+                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left text-xs font-montserrat transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-yellow-500/20 text-yellow-300 font-bold border border-yellow-400/50 shadow-[0_0_10px_rgba(234,179,8,0.3)]'
+                            : 'text-neutral-300 hover:text-white hover:bg-white/10'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-mono font-bold ${
+                              isSelected
+                                ? 'bg-yellow-400 text-black shadow-sm'
+                                : 'bg-neutral-800 text-neutral-400'
+                            }`}
+                          >
+                            {idx + 1}
+                          </span>
+                          <span className="font-semibold">{srv.name}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-neutral-400 font-mono">
+                            {srv.badge}
+                          </span>
+                          {isSelected && (
+                            <Check className="w-3.5 h-3.5 text-yellow-400" />
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             )}
           </div>
-          <div className="flex flex-col min-w-0">
+
+          {/* Title & Media Meta (Hidden on mobile, visible on PC/desktop) */}
+          <div className="hidden md:flex flex-col min-w-0">
             <h2 className="text-white font-montserrat font-bold text-[11px] sm:text-xs md:text-sm tracking-wide drop-shadow-md truncate">
               {poster.titleLine1 || poster.title}
               {poster.titleLine2 ? ` ${poster.titleLine2}` : ''}
@@ -217,6 +390,18 @@ export const MoviePlayerModal: React.FC<MoviePlayerModalProps> = ({
                   {poster.mediaType === 'tv' ? `S${season}:E${episode}` : `E${episode}`}
                 </span>
               )}
+              {/* Server Name Badge: Display ONLY on PC/Desktop screens (hidden on mobile) */}
+              <button
+                type="button"
+                onClick={() => {
+                  sound.playOkClick();
+                  setIsServerMenuOpen((prev) => !prev);
+                }}
+                title="Click to change server"
+                className="hidden md:inline-flex items-center text-yellow-400 hover:text-yellow-300 font-mono font-bold hover:underline cursor-pointer ml-0.5 transition-colors"
+              >
+                [{currentServer.name}]
+              </button>
             </div>
           </div>
         </div>
@@ -418,21 +603,8 @@ export const MoviePlayerModal: React.FC<MoviePlayerModalProps> = ({
           </div>
         )}
 
-        {/* Right: External Link & Close Player Modal Buttons */}
-        <div className="flex items-center justify-end gap-1.5 sm:gap-2 pointer-events-auto shrink-0">
-          <a
-            id="open-external-player-btn"
-            href={playerUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Open Stream in New Tab (Bypasses Preview Sandbox)"
-            aria-label="Open Stream in New Tab"
-            className="group relative flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-neutral-900/80 hover:bg-cyan-600 text-neutral-300 hover:text-white border border-white/20 hover:border-cyan-400 shadow-[0_4px_16px_rgba(0,0,0,0.8)] hover:shadow-[0_0_16px_rgba(6,182,212,0.7)] backdrop-blur-xl transition-all duration-200 cursor-pointer active:scale-90"
-          >
-            <ExternalLink className="w-3.5 h-3.5 sm:w-4 sm:h-4 transition-transform duration-200 group-hover:scale-110" />
-            <span className="sr-only">Open in New Tab</span>
-          </a>
-
+        {/* Right: Close Player Modal Button */}
+        <div className="flex items-center justify-end pointer-events-auto shrink-0">
           <button
             id="close-player-btn"
             onClick={() => {
@@ -456,13 +628,13 @@ export const MoviePlayerModal: React.FC<MoviePlayerModalProps> = ({
             <div
               className="w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 border-t-transparent animate-spin"
               style={{
-                borderColor: `${poster.themeColor?.primary || '#ef4444'} transparent ${poster.themeColor?.secondary || '#dc2626'} transparent`,
+                borderColor: `${poster.themeColor?.primary || '#eab308'} transparent ${poster.themeColor?.secondary || '#ca8a04'} transparent`,
               }}
             />
-            <Loader2 className="w-7 h-7 text-neutral-400 animate-spin absolute" />
+            <Loader2 className="w-7 h-7 text-yellow-400 animate-spin absolute" />
           </div>
-          <p className="mt-4 text-neutral-300 font-montserrat font-medium text-xs tracking-wider uppercase">
-            Loading {poster.mediaType === 'anime' ? `Anime Episode ${episode}` : poster.mediaType === 'tv' ? `TV Stream (S${season} : E${episode})` : 'Cinema Stream'}...
+          <p className="mt-4 text-neutral-200 font-montserrat font-semibold text-xs sm:text-sm tracking-wider uppercase">
+            Connecting to {currentServer.name} ({currentServer.badge})...
           </p>
           <span className="text-[10px] text-neutral-500 font-mono mt-1 max-w-[90vw] truncate">
             {playerUrl}
@@ -470,9 +642,9 @@ export const MoviePlayerModal: React.FC<MoviePlayerModalProps> = ({
         </div>
       )}
 
-      {/* CinemaOS Stream Iframe */}
+      {/* Stream Iframe */}
       <iframe
-        key={`${playerUrl}-${season}-${episode}`}
+        key={`${playerUrl}-${season}-${episode}-${selectedServerIndex}`}
         id="cinemaos-iframe"
         src={playerUrl}
         title={poster.title}
