@@ -1,0 +1,6 @@
+{
+  "name": "Cinematic Movie Poster Showcase",
+  "description": "An interactive cinematic movie poster showcase featuring infinite TMDB trending movies, earthquake screen shake switching, 3D parallax effects, and bold authentic poster typography.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
