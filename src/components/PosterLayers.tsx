@@ -28,11 +28,18 @@ export const PosterLayers: React.FC<PosterLayersProps> = ({
   // Ordered resilient image candidates list
   const candidateImages = useMemo(() => {
     const list: string[] = [];
-    if (poster.textlessPosterUrl && typeof poster.textlessPosterUrl === 'string') {
+    // Prioritize textless poster if available from TMDB data
+    if (poster.hasTextlessPoster && poster.textlessPosterUrl && typeof poster.textlessPosterUrl === 'string') {
       list.push(poster.textlessPosterUrl);
     }
     if (poster.heroImageUrl && typeof poster.heroImageUrl === 'string' && !list.includes(poster.heroImageUrl)) {
       list.push(poster.heroImageUrl);
+    }
+    if (poster.officialPosterUrl && typeof poster.officialPosterUrl === 'string' && !list.includes(poster.officialPosterUrl)) {
+      list.push(poster.officialPosterUrl);
+    }
+    if (poster.textlessPosterUrl && typeof poster.textlessPosterUrl === 'string' && !list.includes(poster.textlessPosterUrl)) {
+      list.push(poster.textlessPosterUrl);
     }
     if (poster.bgImageUrl && typeof poster.bgImageUrl === 'string' && !list.includes(poster.bgImageUrl)) {
       list.push(poster.bgImageUrl);

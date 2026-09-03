@@ -28,6 +28,7 @@ import {
   fetchInfiniteTVCatalog,
   preloadPosterImages,
   fetchMovieDetails,
+  enrichPosterWithTmdbArtwork,
 } from './services/tmdb';
 import {
   fetchTop100AniListAnime,
@@ -113,6 +114,12 @@ export default function App() {
         const top100 = await fetchTop100Movies();
         if (isMounted && top100.length > 0) {
           setMoviesCatalog(top100);
+          // Proactively enrich the initial movie poster artwork
+          enrichPosterWithTmdbArtwork(top100[0]).then((enriched) => {
+            if (isMounted && enriched) {
+              setMoviesCatalog((prev) => prev.map((m) => (m.id === enriched.id ? enriched : m)));
+            }
+          });
         }
       } catch (err) {
         console.warn('Using fallback movies:', err);
@@ -178,43 +185,33 @@ export default function App() {
     [activeMediaType, tvCatalog, animeCatalog, moviesCatalog]
   );
 
-  // Enrich current poster with deep credits if movie details are generic
+  // Proactively enrich current poster with authentic TMDB artwork (textless vs official)
   useEffect(() => {
-    const activeMovie = activeCatalog[currentIndex];
-    if (
-      activeMovie &&
-      activeMovie.tmdbId &&
-      activeMovie.director === 'ACCLAIMED FILMMAKER' &&
-      activeMovie.mediaType !== 'tv' &&
-      activeMovie.mediaType !== 'anime'
-    ) {
+    const activeItem = activeCatalog[currentIndex];
+    if (activeItem && activeItem.tmdbId && activeItem.hasTextlessPoster === undefined && activeItem.mediaType !== 'anime') {
       let isSubscribed = true;
-      fetchMovieDetails(activeMovie.tmdbId).then((details) => {
-        if (isSubscribed && details) {
-          setMoviesCatalog((prev) =>
-            prev.map((m) => {
-              if (m.id === activeMovie.id) {
-                return {
-                  ...m,
-                  director: details.director,
-                  musicBy: details.musicBy,
-                  cast: details.cast,
-                  productionCompanies: details.productionCompanies,
-                  tagline: details.tagline || m.tagline,
-                  runtime: details.runtime || m.runtime,
-                  textlessPosterUrl: details.textlessPosterUrl || m.textlessPosterUrl,
-                };
-              }
-              return m;
-            })
-          );
-        }
+      enrichPosterWithTmdbArtwork(activeItem).then((enriched) => {
+        if (!isSubscribed || !enriched) return;
+        const setter = activeMediaType === 'tv' ? setTvCatalog : setMoviesCatalog;
+        setter((prev) => prev.map((m) => (m.id === activeItem.id ? enriched : m)));
       });
       return () => {
         isSubscribed = false;
       };
     }
-  }, [currentIndex, activeCatalog]);
+  }, [currentIndex, activeCatalog, activeMediaType]);
+
+  // Pre-enrich neighboring next poster for seamless instant navigation
+  useEffect(() => {
+    const nextItem = activeCatalog[currentIndex + 1];
+    if (nextItem && nextItem.tmdbId && nextItem.hasTextlessPoster === undefined && nextItem.mediaType !== 'anime') {
+      enrichPosterWithTmdbArtwork(nextItem).then((enriched) => {
+        if (!enriched) return;
+        const setter = activeMediaType === 'tv' ? setTvCatalog : setMoviesCatalog;
+        setter((prev) => prev.map((m) => (m.id === nextItem.id ? enriched : m)));
+      });
+    }
+  }, [currentIndex, activeCatalog, activeMediaType]);
 
   // Infinite next page loader for active category
   const loadNextPage = useCallback(
@@ -486,6 +483,11 @@ export default function App() {
             const updated = [selectedItem, ...prev];
             setTvIndex(0);
             preloadPosterImages([selectedItem]);
+            enrichPosterWithTmdbArtwork(selectedItem).then((enriched) => {
+              if (enriched) {
+                setTvCatalog((curr) => curr.map((m) => (m.id === enriched.id ? enriched : m)));
+              }
+            });
             return updated;
           }
         });
@@ -518,6 +520,11 @@ export default function App() {
             const updated = [selectedItem, ...prev];
             setMovieIndex(0);
             preloadPosterImages([selectedItem]);
+            enrichPosterWithTmdbArtwork(selectedItem).then((enriched) => {
+              if (enriched) {
+                setMoviesCatalog((curr) => curr.map((m) => (m.id === enriched.id ? enriched : m)));
+              }
+            });
             return updated;
           }
         });

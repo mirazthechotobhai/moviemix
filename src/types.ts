@@ -42,6 +42,9 @@ export interface PosterData {
   bgImageUrl: string;
   heroImageUrl: string;
   textlessPosterUrl?: string;
+  officialPosterUrl?: string;
+  hasTextlessPoster?: boolean;
+  isTextless?: boolean;
   atmosphereOverlay?: string;
   spiderLogoVariant?: 'classic' | 'modern' | 'verse' | 'symbiote' | 'retro' | 'joker' | 'bat' | string;
   soundtrackTitle?: string;

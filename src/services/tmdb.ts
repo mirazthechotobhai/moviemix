@@ -196,10 +196,12 @@ export async function fetchMovieDetails(movieId: number): Promise<{
   productionCompanies: string[];
   tagline?: string;
   textlessPosterUrl?: string;
+  officialPosterUrl?: string;
+  hasTextlessPoster?: boolean;
 } | null> {
   try {
     const res = await fetch(
-      `https://api.themoviedb.org/3/movie/${movieId}?api_key=${TMDB_API_KEY}&append_to_response=credits,images`
+      `https://api.themoviedb.org/3/movie/${movieId}?api_key=${TMDB_API_KEY}&append_to_response=credits,images&include_image_language=en,null`
     );
     if (!res.ok) return null;
     const data = await res.json();
@@ -217,11 +219,25 @@ export async function fetchMovieDetails(movieId: number): Promise<{
 
     const prodCompanies = (data.production_companies || []).slice(0, 4).map((p: any) => p.name);
 
-    // Look for genuine textless posters (iso_639_1 is null or empty) or best available poster artwork
-    const posters = data.images?.posters || [];
-    const textless = posters.find((img: any) => img.iso_639_1 === null || img.iso_639_1 === '' || img.iso_639_1 === 'xx');
-    const bestPoster = textless || posters[0];
-    const textlessUrl = bestPoster?.file_path ? `${TMDB_POSTER_BASE}${bestPoster.file_path}` : undefined;
+    // Look for genuine textless posters (iso_639_1 is null, empty string, or 'xx')
+    const posters: any[] = data.images?.posters || [];
+    const textlessPosters = posters.filter(
+      (img: any) => img.iso_639_1 === null || img.iso_639_1 === '' || img.iso_639_1 === 'xx'
+    );
+    // Sort textless by vote_count / quality
+    textlessPosters.sort(
+      (a: any, b: any) => (b.vote_count || 0) - (a.vote_count || 0) || (b.width || 0) - (a.width || 0)
+    );
+
+    const hasTextlessPoster = textlessPosters.length > 0;
+    const bestTextless = textlessPosters[0];
+    const textlessUrl = hasTextlessPoster && bestTextless?.file_path
+      ? `${TMDB_POSTER_BASE}${bestTextless.file_path}`
+      : undefined;
+
+    const officialPosterUrl = data.poster_path
+      ? `${TMDB_POSTER_BASE}${data.poster_path}`
+      : (posters[0]?.file_path ? `${TMDB_POSTER_BASE}${posters[0].file_path}` : undefined);
 
     return {
       director: directorObj ? directorObj.name.toUpperCase() : 'THEATRICAL DIRECTOR',
@@ -231,21 +247,31 @@ export async function fetchMovieDetails(movieId: number): Promise<{
       productionCompanies: prodCompanies.length > 0 ? prodCompanies : ['THEATRICAL RELEASE'],
       tagline: data.tagline ? data.tagline.trim() : undefined,
       textlessPosterUrl: textlessUrl,
+      officialPosterUrl,
+      hasTextlessPoster,
     };
   } catch {
     return null;
   }
 }
 
-// Fetch TV show details including number of seasons and season episode list
+// Fetch TV show details including number of seasons, credits, and textless poster images
 export async function fetchTVDetails(tvId: number): Promise<{
   numberOfSeasons: number;
   numberOfEpisodes: number;
   seasons: { season_number: number; episode_count: number; name: string }[];
+  director?: string;
+  musicBy?: string;
+  cast?: { actor: string; character: string }[];
+  productionCompanies?: string[];
+  tagline?: string;
+  textlessPosterUrl?: string;
+  officialPosterUrl?: string;
+  hasTextlessPoster?: boolean;
 } | null> {
   try {
     const res = await fetch(
-      `https://api.themoviedb.org/3/tv/${tvId}?api_key=${TMDB_API_KEY}`
+      `https://api.themoviedb.org/3/tv/${tvId}?api_key=${TMDB_API_KEY}&append_to_response=credits,images&include_image_language=en,null`
     );
     if (!res.ok) return null;
     const data = await res.json();
@@ -257,13 +283,131 @@ export async function fetchTVDetails(tvId: number): Promise<{
         name: s.name || `Season ${s.season_number}`,
       }));
 
+    const posters: any[] = data.images?.posters || [];
+    const textlessPosters = posters.filter(
+      (img: any) => img.iso_639_1 === null || img.iso_639_1 === '' || img.iso_639_1 === 'xx'
+    );
+    textlessPosters.sort(
+      (a: any, b: any) => (b.vote_count || 0) - (a.vote_count || 0) || (b.width || 0) - (a.width || 0)
+    );
+
+    const hasTextlessPoster = textlessPosters.length > 0;
+    const bestTextless = textlessPosters[0];
+    const textlessUrl = hasTextlessPoster && bestTextless?.file_path
+      ? `${TMDB_POSTER_BASE}${bestTextless.file_path}`
+      : undefined;
+
+    const officialPosterUrl = data.poster_path
+      ? `${TMDB_POSTER_BASE}${data.poster_path}`
+      : (posters[0]?.file_path ? `${TMDB_POSTER_BASE}${posters[0].file_path}` : undefined);
+
+    const crew = data.credits?.crew || [];
+    const directorObj = crew.find((c: any) => c.job === 'Director') || (data.created_by && data.created_by[0]);
+    const composerObj = crew.find((c: any) => c.job === 'Original Music Composer' || c.job === 'Music');
+    const rawCast = data.credits?.cast || [];
+    const topCast = rawCast.slice(0, 6).map((c: any) => ({
+      actor: c.name || 'Cast Member',
+      character: c.character || 'Leading Role',
+    }));
+    const prodCompanies = (data.production_companies || []).slice(0, 4).map((p: any) => p.name);
+
     return {
       numberOfSeasons: data.number_of_seasons || seasons.length || 1,
       numberOfEpisodes: data.number_of_episodes || 10,
       seasons,
+      director: directorObj ? directorObj.name.toUpperCase() : undefined,
+      musicBy: composerObj ? composerObj.name.toUpperCase() : undefined,
+      cast: topCast.length > 0 ? topCast : undefined,
+      productionCompanies: prodCompanies.length > 0 ? prodCompanies : undefined,
+      tagline: data.tagline ? data.tagline.trim() : undefined,
+      textlessPosterUrl: textlessUrl,
+      officialPosterUrl,
+      hasTextlessPoster,
     };
   } catch {
     return null;
+  }
+}
+
+// In-memory cache for poster artwork and details
+const posterDetailsCache = new Map<string, any>();
+
+/**
+ * Enriches a movie or TV poster with authentic TMDB artwork:
+ * - If a textless poster exists (without text in TMDB data): sets textlessPosterUrl and hasTextlessPoster = true.
+ * - If only 1 official poster with text exists: sets officialPosterUrl and hasTextlessPoster = false.
+ */
+export async function enrichPosterWithTmdbArtwork(poster: PosterData): Promise<PosterData> {
+  if (!poster.tmdbId) return poster;
+  const isTv = poster.mediaType === 'tv';
+  const cacheKey = `${isTv ? 'tv' : 'movie'}-${poster.tmdbId}`;
+
+  if (posterDetailsCache.has(cacheKey)) {
+    const cached = posterDetailsCache.get(cacheKey);
+    const heroImageUrl = cached.hasTextlessPoster && cached.textlessPosterUrl
+      ? cached.textlessPosterUrl
+      : (cached.officialPosterUrl || poster.heroImageUrl);
+
+    return {
+      ...poster,
+      ...cached,
+      heroImageUrl,
+      textlessPosterUrl: cached.textlessPosterUrl,
+      officialPosterUrl: cached.officialPosterUrl || poster.heroImageUrl,
+      hasTextlessPoster: cached.hasTextlessPoster,
+      isTextless: cached.hasTextlessPoster,
+    };
+  }
+
+  try {
+    if (isTv) {
+      const tvDetails = await fetchTVDetails(poster.tmdbId);
+      if (tvDetails) {
+        const enriched = {
+          hasTextlessPoster: tvDetails.hasTextlessPoster ?? false,
+          isTextless: tvDetails.hasTextlessPoster ?? false,
+          textlessPosterUrl: tvDetails.textlessPosterUrl,
+          officialPosterUrl: tvDetails.officialPosterUrl || poster.heroImageUrl,
+          director: tvDetails.director || poster.director,
+          musicBy: tvDetails.musicBy || poster.musicBy,
+          cast: tvDetails.cast || poster.cast,
+          tagline: tvDetails.tagline || poster.tagline,
+          productionCompanies: tvDetails.productionCompanies || poster.productionCompanies,
+        };
+        posterDetailsCache.set(cacheKey, enriched);
+        return {
+          ...poster,
+          ...enriched,
+          heroImageUrl: enriched.hasTextlessPoster && enriched.textlessPosterUrl ? enriched.textlessPosterUrl : (enriched.officialPosterUrl || poster.heroImageUrl),
+        };
+      }
+    } else {
+      const movieDetails = await fetchMovieDetails(poster.tmdbId);
+      if (movieDetails) {
+        const enriched = {
+          hasTextlessPoster: movieDetails.hasTextlessPoster ?? false,
+          isTextless: movieDetails.hasTextlessPoster ?? false,
+          textlessPosterUrl: movieDetails.textlessPosterUrl,
+          officialPosterUrl: movieDetails.officialPosterUrl || poster.heroImageUrl,
+          director: movieDetails.director || poster.director,
+          musicBy: movieDetails.musicBy || poster.musicBy,
+          cast: movieDetails.cast || poster.cast,
+          tagline: movieDetails.tagline || poster.tagline,
+          productionCompanies: movieDetails.productionCompanies || poster.productionCompanies,
+          runtime: movieDetails.runtime || poster.runtime,
+        };
+        posterDetailsCache.set(cacheKey, enriched);
+        return {
+          ...poster,
+          ...enriched,
+          heroImageUrl: enriched.hasTextlessPoster && enriched.textlessPosterUrl ? enriched.textlessPosterUrl : (enriched.officialPosterUrl || poster.heroImageUrl),
+        };
+      }
+    }
+    return poster;
+  } catch (err) {
+    console.warn('Failed to enrich poster artwork:', err);
+    return poster;
   }
 }
 
@@ -290,9 +434,10 @@ export function transformTmdbMovie(m: any, detailedInfo?: any): PosterData {
     : posterPath;
 
   const bgImageUrl = backdropPath;
-  const heroImageUrl = posterPath;
-  // If textless clean poster is not available, default directly to the main poster everywhere
-  const textlessPosterUrl = detailedInfo?.textlessPosterUrl || posterPath;
+  const hasTextlessPoster = detailedInfo ? Boolean(detailedInfo.hasTextlessPoster) : undefined;
+  const textlessPosterUrl = detailedInfo?.textlessPosterUrl;
+  const officialPosterUrl = detailedInfo?.officialPosterUrl || posterPath;
+  const heroImageUrl = hasTextlessPoster && textlessPosterUrl ? textlessPosterUrl : posterPath;
 
   const titleLower = (m.title || '').toLowerCase();
   let logoVariant: PosterData['spiderLogoVariant'] = 'modern';
@@ -335,6 +480,9 @@ export function transformTmdbMovie(m: any, detailedInfo?: any): PosterData {
     bgImageUrl,
     heroImageUrl,
     textlessPosterUrl,
+    officialPosterUrl,
+    hasTextlessPoster,
+    isTextless: hasTextlessPoster,
     spiderLogoVariant: logoVariant,
     soundtrackTitle: 'Original Motion Picture Soundtrack Available Worldwide',
     mediaType: 'movie',
@@ -371,8 +519,10 @@ export function transformTmdbTV(m: any, detailedInfo?: any): PosterData {
     : posterPath;
 
   const bgImageUrl = backdropPath;
-  const heroImageUrl = posterPath;
-  const textlessPosterUrl = detailedInfo?.textlessPosterUrl || posterPath;
+  const hasTextlessPoster = detailedInfo ? Boolean(detailedInfo.hasTextlessPoster) : undefined;
+  const textlessPosterUrl = detailedInfo?.textlessPosterUrl;
+  const officialPosterUrl = detailedInfo?.officialPosterUrl || posterPath;
+  const heroImageUrl = hasTextlessPoster && textlessPosterUrl ? textlessPosterUrl : posterPath;
 
   const titleLower = rawTitle.toLowerCase();
   let logoVariant: PosterData['spiderLogoVariant'] = 'modern';
@@ -413,6 +563,9 @@ export function transformTmdbTV(m: any, detailedInfo?: any): PosterData {
     bgImageUrl,
     heroImageUrl,
     textlessPosterUrl,
+    officialPosterUrl,
+    hasTextlessPoster,
+    isTextless: hasTextlessPoster,
     spiderLogoVariant: logoVariant,
     soundtrackTitle: 'Official Television Soundtrack & Score',
     mediaType: 'tv',

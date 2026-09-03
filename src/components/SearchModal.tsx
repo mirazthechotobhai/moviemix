@@ -69,7 +69,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
 }) => {
   const [query, setQuery] = useState<string>('');
   const [activeCategory, setActiveCategory] = useState<StreamCategory>('trending');
-  const [showFilters, setShowFilters] = useState<boolean>(true);
+  const [showFilters, setShowFilters] = useState<boolean>(false);
 
   // Discover & Filter States
   const [selectedGenreId, setSelectedGenreId] = useState<string | number>('ALL');
@@ -686,22 +686,143 @@ export const SearchModal: React.FC<SearchModalProps> = ({
               )}
               <button
                 type="button"
+                id="toggle-filters-btn"
                 onClick={() => setShowFilters((prev) => !prev)}
-                title="Toggle Filters"
-                className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 transition-all ${
+                title={showFilters ? 'Hide Filters' : 'Show Filters'}
+                className={`p-1.5 sm:px-2.5 rounded-lg border text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
                   showFilters
+                    ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.25)]'
+                    : hasAnyFilterActive
                     ? 'bg-cyan-500/15 border-cyan-500/30 text-cyan-300'
-                    : 'bg-white/5 border-white/10 text-slate-400 hover:text-slate-200'
+                    : 'bg-white/5 border-white/10 text-slate-400 hover:text-slate-200 hover:bg-white/10'
                 }`}
               >
                 <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline text-[11px] font-medium">
+                  {showFilters ? 'Hide Filters' : 'Filters'}
+                </span>
+                {hasAnyFilterActive && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                )}
               </button>
             </div>
           </div>
 
           {/* Modern Discover & Filter Bar */}
           {showFilters && (
-            <div className="p-2.5 sm:p-3 rounded-xl bg-slate-950/60 border border-white/5 flex flex-col gap-2">
+            <div className="p-2.5 sm:p-3.5 rounded-xl bg-slate-950/70 border border-white/10 flex flex-col gap-3 shadow-xl backdrop-blur-md">
+              {/* Category Feed Tabs (Trending, All Catalog, Top 100, Popular, Top Rated) */}
+              {activeMode === 'movies' ? (
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-slate-400 font-semibold tracking-wider uppercase flex items-center gap-1.5">
+                      <Sparkles className="w-3 h-3 text-cyan-400" />
+                      Browse Feeds
+                    </span>
+                    {hasAnyFilterActive && (
+                      <button
+                        type="button"
+                        onClick={handleResetFilters}
+                        className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Reset Filters</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDiscoverActive(false);
+                        setActiveCategory('trending');
+                        sound.playOkClick();
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                        activeCategory === 'trending' && !isDiscoverActive
+                          ? 'bg-orange-500/25 text-orange-300 border border-orange-500/50 shadow-[0_0_12px_rgba(249,115,22,0.3)]'
+                          : 'bg-slate-900/90 text-slate-400 hover:text-slate-200 border border-white/5 hover:bg-white/5'
+                      }`}
+                    >
+                      <Flame className="w-3.5 h-3.5 text-orange-400" /> Trending
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDiscoverActive(false);
+                        setActiveCategory('all');
+                        sound.playOkClick();
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                        activeCategory === 'all' && !isDiscoverActive
+                          ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-500/50 shadow-[0_0_12px_rgba(6,182,212,0.3)]'
+                          : 'bg-slate-900/90 text-slate-400 hover:text-slate-200 border border-white/5 hover:bg-white/5'
+                      }`}
+                    >
+                      <InfinityIcon className="w-3.5 h-3.5 text-cyan-400" /> All Catalog
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDiscoverActive(false);
+                        setActiveCategory('top100');
+                        sound.playOkClick();
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                        activeCategory === 'top100' && !isDiscoverActive
+                          ? 'bg-yellow-500/25 text-yellow-300 border border-yellow-500/50 shadow-[0_0_12px_rgba(234,179,8,0.3)]'
+                          : 'bg-slate-900/90 text-slate-400 hover:text-slate-200 border border-white/5 hover:bg-white/5'
+                      }`}
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-yellow-400" /> Top 100
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDiscoverActive(false);
+                        setActiveCategory('popular');
+                        sound.playOkClick();
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                        activeCategory === 'popular' && !isDiscoverActive
+                          ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-500/50 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                          : 'bg-slate-900/90 text-slate-400 hover:text-slate-200 border border-white/5 hover:bg-white/5'
+                      }`}
+                    >
+                      <TrendingUp className="w-3.5 h-3.5 text-emerald-400" /> Popular
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDiscoverActive(false);
+                        setActiveCategory('top_rated');
+                        sound.playOkClick();
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                        activeCategory === 'top_rated' && !isDiscoverActive
+                          ? 'bg-purple-500/25 text-purple-300 border border-purple-500/50 shadow-[0_0_12px_rgba(168,85,247,0.3)]'
+                          : 'bg-slate-900/90 text-slate-400 hover:text-slate-200 border border-white/5 hover:bg-white/5'
+                      }`}
+                    >
+                      <Award className="w-3.5 h-3.5 text-amber-400" /> Top Rated
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 text-slate-300 text-xs font-medium py-0.5">
+                  <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>
+                    {activeMode === 'tv'
+                      ? 'Worldwide Popular Series'
+                      : 'Top Japanese Anime Series & Movies'}
+                  </span>
+                </div>
+              )}
+
+              {/* Divider */}
+              <div className="h-px w-full bg-white/5" />
+
               {/* Filter Selectors Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-2">
                 {/* 1. Category / Genre */}
@@ -844,107 +965,32 @@ export const SearchModal: React.FC<SearchModalProps> = ({
             </div>
           )}
 
-          {/* Sub-Filters / Movies Tabs */}
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-            {isDiscoverActive ? (
-              <div className="flex items-center gap-2 text-cyan-300 font-medium">
-                <Compass className="w-3.5 h-3.5" />
-                <span>Filtered Results ({displayItems.length} found)</span>
-                {selectedYear && (
-                  <span className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-slate-300 text-[10px]">
-                    Year: {selectedYear}
-                  </span>
-                )}
-                {selectedCountry && (
-                  <span className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-slate-300 text-[10px]">
-                    {selectedCountry}
-                  </span>
-                )}
-              </div>
-            ) : query.trim() ? (
-              <div className="flex items-center gap-1.5 text-slate-300">
-                <Search className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Results for "{query}"</span>
-              </div>
-            ) : activeMode === 'movies' ? (
-              <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
-                <button
-                  onClick={() => {
-                    setActiveCategory('trending');
-                    sound.playOkClick();
-                  }}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
-                    activeCategory === 'trending'
-                      ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40 shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
-                  }`}
-                >
-                  <Flame className="w-3 h-3 text-orange-400" /> Trending
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveCategory('all');
-                    sound.playOkClick();
-                  }}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
-                    activeCategory === 'all'
-                      ? 'bg-slate-800 text-white border border-white/15'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
-                  }`}
-                >
-                  <InfinityIcon className="w-3 h-3 text-cyan-400" /> All Catalog
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveCategory('top100');
-                    sound.playOkClick();
-                  }}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
-                    activeCategory === 'top100'
-                      ? 'bg-slate-800 text-white border border-white/15'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
-                  }`}
-                >
-                  <Sparkles className="w-3 h-3 text-yellow-400" /> Top 100
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveCategory('popular');
-                    sound.playOkClick();
-                  }}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
-                    activeCategory === 'popular'
-                      ? 'bg-slate-800 text-white border border-white/15'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
-                  }`}
-                >
-                  <TrendingUp className="w-3 h-3 text-emerald-400" /> Popular
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveCategory('top_rated');
-                    sound.playOkClick();
-                  }}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
-                    activeCategory === 'top_rated'
-                      ? 'bg-slate-800 text-white border border-white/15'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
-                  }`}
-                >
-                  <Award className="w-3 h-3 text-amber-400" /> Top Rated
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5 text-slate-400 font-medium text-xs">
-                <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                <span>
-                  {activeMode === 'tv'
-                    ? 'Worldwide Popular Series'
-                    : 'Top Japanese Anime Series & Movies'}
-                </span>
-              </div>
-            )}
-          </div>
+          {/* Search / Filter Status Bar (Only shown if active filter or search query is present) */}
+          {(isDiscoverActive || query.trim()) && (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-1">
+              {isDiscoverActive ? (
+                <div className="flex items-center gap-2 text-cyan-300 font-medium">
+                  <Compass className="w-3.5 h-3.5" />
+                  <span>Filtered Results ({displayItems.length} found)</span>
+                  {selectedYear && (
+                    <span className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-slate-300 text-[10px]">
+                      Year: {selectedYear}
+                    </span>
+                  )}
+                  {selectedCountry && (
+                    <span className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-slate-300 text-[10px]">
+                      {selectedCountry}
+                    </span>
+                  )}
+                </div>
+              ) : query.trim() ? (
+                <div className="flex items-center gap-1.5 text-slate-300">
+                  <Search className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Results for "{query}"</span>
+                </div>
+              ) : null}
+            </div>
+          )}
         </div>
 
         {/* Scrollable Results Area */}
